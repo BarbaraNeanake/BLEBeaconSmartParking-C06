@@ -1,0 +1,48 @@
+.gradle/
+.idea/
+.DS_Store
+build/
+local.properties
+captures/
+.cxx/
+*.iml
+*.iws
+*.ipr
+.project
+.settings
+.classpath
+*.swp
+*.bak
+*.swo
+
+# == Android-specific Ignored Files ==
+# Built application files
+*.apk
+*.aab
+*.aar
+app/build/
+app/release/
+
+# Gradle-related files
+gradle-wrapper.jar
+/gradle-wrapper/gradle-wrapper.properties
+/gradle-wrapper/gradle-wrapper.jar
+
+# Keystore for signing
+*.jks
+*.keystore
+
+# Local test results
+/app/build/test-results/
+/app/build/reports/
+
+# IDE files
+.idea/
+/local.properties
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/vcs.xml
+.idea/workspace.xml
+.idea/gradle.xml
+.idea/navEditor.xml
