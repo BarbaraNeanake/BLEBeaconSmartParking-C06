@@ -11,6 +11,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
+import com.example.smartparking.ui.beacontest.BeaconScreen
 import com.example.smartparking.ui.home.HomeScreen
 import com.example.smartparking.ui.home.HomeViewModel
 import com.example.smartparking.ui.theme.SmartParkingTheme
@@ -28,11 +29,12 @@ class MainActivity : ComponentActivity() {
                 val state by homeViewModel.uiState.collectAsState()
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    HomeScreen(
-                        state = state,
-                        onLogoutClick = { /* TODO */ },
-                        modifier = Modifier.padding(innerPadding)
-                    )
+//                    HomeScreen(
+//                        state = state,
+//                        onLogoutClick = { /* TODO */ },
+//                        modifier = Modifier.padding(innerPadding)
+//                    )
+                    BeaconScreen()
                 }
 
             }
