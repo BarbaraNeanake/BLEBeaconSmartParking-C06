@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compileCommands": [
+                "${workspaceFolder}/firmware/camera-unit/network/.pio/build/lolin_c3_mini/compile_commands.json"
+            ]
+        }
+    ],
+    "version": 4
+}
