@@ -2,9 +2,8 @@ name: Sync to Hugging Face hub
 
 on:
   push:
-    branches: [Danish] # Triggers on pushes to the main branch
+    branches: [Danish]
 
-  # To run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
@@ -15,23 +14,15 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Push "deployment" folder to Hugging Face Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          # Navigate into the subfolder
-          cd deployment
-
-          # Initialize a new git repository
-          git init
-
-          # Set a dummy user identity for the commit
-          git config --global user.email "actions@github.com"
-          git config --global user.name "GitHub Actions"
-
-          # Add the Hugging Face Space as a remote
-          git remote add space https://danishritonga:$HF_TOKEN@huggingface.co/spaces/danishritonga/CAPS-backend
-
-          # Add all files, commit them, and push to the 'main' branch of the remote
-          git add .
-          git commit -m "Deploy backend to Space"
-          git push --force space HEAD:Danish
+        uses: huggingface/hub-action@v0.1
+        with:
+          # The repo ID of your space (username/space-name)
+          repo_id: danishritonga/CAPS-backend
+          # The type of repo, in this case a "space"
+          repo_type: space
+          # The local folder you want to push
+          folder_path: deployment
+          # Your Hugging Face token, with write permissions
+          token: ${{ secrets.HF_TOKEN }}
+          # The commit message to use
+          commit_message: "Deploy backend to Space"
