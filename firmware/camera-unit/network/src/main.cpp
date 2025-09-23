@@ -28,10 +28,11 @@
 // --- Device & Topic Configuration
 #define MQTT_CLIENT_ID    "esp32-c3-device-a-idf"
 #define MQTT_TOPIC_DATA   "sensor/1/data"
+#define MQTT_TOPIC_ALARM  "violation/1" // New topic for the buzzer
 
 // --- Hardware Pin Configuration
-// Connect your push button between GPIO 4 and GND
 #define BUTTON_PIN GPIO_NUM_4
+#define BUZZER_PIN GPIO_NUM_5 // GPIO for the active buzzer
 // =====================================================
 
 static const char *TAG = "DEVICE_A";
@@ -93,12 +94,31 @@ void wifi_init_sta(void) {
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%ld", base, event_id);
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
+    esp_mqtt_client_handle_t client = event->client;
+
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+        // Subscribe to the violation topic upon connection
+        esp_mqtt_client_subscribe(client, MQTT_TOPIC_ALARM, 0);
+        ESP_LOGI(TAG, "Subscribed to topic: %s", MQTT_TOPIC_ALARM);
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        break;
+    case MQTT_EVENT_DATA: // Event for incoming messages on subscribed topics
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+        // Check if the received message is on the alarm topic
+        if (strncmp(event->topic, MQTT_TOPIC_ALARM, event->topic_len) == 0) {
+            // Check if the payload is "True"
+            if (strncmp(event->data, "True", event->data_len) == 0) {
+                ESP_LOGW(TAG, "VIOLATION DETECTED! Sounding buzzer.");
+                gpio_set_level(BUZZER_PIN, 1); // Turn buzzer ON
+            } else {
+                ESP_LOGI(TAG, "Alarm cleared. Turning buzzer OFF.");
+                gpio_set_level(BUZZER_PIN, 0); // Turn buzzer OFF
+            }
+        }
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
@@ -119,12 +139,7 @@ static void mqtt_app_start(void) {
     mqtt_cfg.credentials.username = MQTT_USERNAME;
     mqtt_cfg.credentials.authentication.password = MQTT_PASSWORD;
     mqtt_cfg.credentials.client_id = MQTT_CLIENT_ID;
-
-    // ================== THE FIX ==================
-    // This line tells the client to use the ESP-IDF's built-in bundle
-    // of trusted root certificates to verify the server.
     mqtt_cfg.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
-    // =============================================
 
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(mqtt_client, (esp_mqtt_event_id_t)ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
@@ -179,8 +194,19 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "ESP-IDF Device A booting...");
     
+    // Configure the buzzer pin as an output
+    gpio_config_t buzzer_io_conf = {};
+    buzzer_io_conf.intr_type = GPIO_INTR_DISABLE;
+    buzzer_io_conf.mode = GPIO_MODE_OUTPUT;
+    buzzer_io_conf.pin_bit_mask = (1ULL << BUZZER_PIN);
+    buzzer_io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    buzzer_io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_config(&buzzer_io_conf);
+    gpio_set_level(BUZZER_PIN, 0); // Ensure buzzer is off on startup
+
     mqtt_app_start();
     wifi_init_sta();
 
     xTaskCreate(button_task, "button_task", 2048, NULL, 10, NULL);
 }
+
