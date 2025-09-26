@@ -46,3 +46,4 @@ gradle-wrapper.jar
 .idea/workspace.xml
 .idea/gradle.xml
 .idea/navEditor.xml
+deployment/MQTT/testing.py
