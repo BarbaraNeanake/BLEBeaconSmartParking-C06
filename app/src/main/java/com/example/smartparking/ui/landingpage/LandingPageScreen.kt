@@ -25,10 +25,7 @@ import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 
-/**
- * Landing page: gradasi soft-blue, logo UGM, nama app.
- * Klik di mana pun pada layar -> onNavigateNext()
- */
+
 @Composable
 fun LandingPage(
     appName: String = "Smart Parking FT UGM",

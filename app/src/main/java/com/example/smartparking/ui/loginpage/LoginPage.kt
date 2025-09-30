@@ -28,6 +28,9 @@ import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 
+/**
+ * Entry: pakai ViewModel + navigate ketika login sukses.
+ */
 @Composable
 fun LoginPage(
     vm: LoginViewModel = viewModel(),
@@ -37,12 +40,40 @@ fun LoginPage(
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
 
-    // auto navigate ketika login sukses
     LaunchedEffect(ui.isLoggedIn) {
         if (ui.isLoggedIn) onLoginSuccess()
     }
 
-    // background gradient
+    LoginContent(
+        ui = ui,
+        onEmailChange = vm::onEmailChanged,
+        onPasswordChange = vm::onPasswordChanged,
+        onTogglePassword = vm::togglePasswordVisibility,
+        onRememberMeChange = vm::onRememberMeChanged,
+        onLoginClick = vm::login,
+        onGoogleClick = vm::loginWithGoogle,
+        onFacebookClick = vm::loginWithFacebook,
+        onSignUpClick = onSignUpClick,
+        onForgotPasswordClick = onForgotPasswordClick
+    )
+}
+
+/**
+ * Pure UI (stateless) → aman untuk Preview.
+ */
+@Composable
+private fun LoginContent(
+    ui: LoginUiState,
+    onEmailChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onTogglePassword: () -> Unit,
+    onRememberMeChange: (Boolean) -> Unit,
+    onLoginClick: () -> Unit,
+    onGoogleClick: () -> Unit,
+    onFacebookClick: () -> Unit,
+    onSignUpClick: () -> Unit,
+    onForgotPasswordClick: () -> Unit
+) {
     val gradient = remember {
         Brush.verticalGradient(
             listOf(
@@ -59,7 +90,7 @@ fun LoginPage(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // header (logo + title)
+        // Header
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -83,7 +114,7 @@ fun LoginPage(
             )
         }
 
-        // card form
+        // Card form
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -114,7 +145,7 @@ fun LoginPage(
 
                 OutlinedTextField(
                     value = ui.email,
-                    onValueChange = vm::onEmailChanged,
+                    onValueChange = onEmailChange,
                     label = { Text("Email") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -124,7 +155,7 @@ fun LoginPage(
 
                 OutlinedTextField(
                     value = ui.password,
-                    onValueChange = vm::onPasswordChanged,
+                    onValueChange = onPasswordChange,
                     label = { Text("Password") },
                     singleLine = true,
                     visualTransformation = if (ui.passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -134,7 +165,7 @@ fun LoginPage(
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .padding(end = 8.dp)
-                                .clickable { vm.togglePasswordVisibility() }
+                                .clickable { onTogglePassword() }
                         )
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -146,7 +177,7 @@ fun LoginPage(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Checkbox(checked = ui.rememberMe, onCheckedChange = vm::onRememberMeChanged)
+                    Checkbox(checked = ui.rememberMe, onCheckedChange = onRememberMeChange)
                     Text("Remember me")
                     Spacer(Modifier.weight(1f))
                     Text(
@@ -159,7 +190,7 @@ fun LoginPage(
                 Spacer(Modifier.height(10.dp))
 
                 Button(
-                    onClick = { vm.login() },
+                    onClick = onLoginClick,
                     enabled = !ui.loading,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -200,7 +231,7 @@ fun LoginPage(
                 Spacer(Modifier.height(12.dp))
 
                 OutlinedButton(
-                    onClick = vm::loginWithGoogle,
+                    onClick = onGoogleClick,
                     enabled = !ui.loading,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -212,7 +243,7 @@ fun LoginPage(
                 Spacer(Modifier.height(8.dp))
 
                 OutlinedButton(
-                    onClick = vm::loginWithFacebook,
+                    onClick = onFacebookClick,
                     enabled = !ui.loading,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -225,11 +256,34 @@ fun LoginPage(
     }
 }
 
-/* ======= PREVIEW ======= */
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "Login – Light")
+/* ======= PREVIEWS (tidak butuh ViewModel) ======= */
+
+@Preview(
+    showBackground = true,
+    name = "Login – Light",
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
 @Composable
 private fun PreviewLoginLight() {
-    SmartParkingTheme { LoginPage() }
+    SmartParkingTheme {
+        LoginContent(
+            ui = LoginUiState(
+                email = "barbara@ugm.ac.id",
+                password = "******",
+                passwordVisible = false,
+                rememberMe = true,
+                loading = false,
+                errorMessage = null
+            ),
+            onEmailChange = {},
+            onPasswordChange = {},
+            onTogglePassword = {},
+            onRememberMeChange = {},
+            onLoginClick = {},
+            onGoogleClick = {},
+            onFacebookClick = {},
+            onSignUpClick = {},
+            onForgotPasswordClick = {}
+        )
+    }
 }
-
-annotation class LoginPage
