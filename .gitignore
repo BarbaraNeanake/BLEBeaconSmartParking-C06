@@ -47,3 +47,6 @@ gradle-wrapper.jar
 .idea/gradle.xml
 .idea/navEditor.xml
 deployment/MQTT/testing.py
+
+# comvis
+/comvis/PKLot

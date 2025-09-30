@@ -19,7 +19,7 @@ MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST")
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 MQTT_BROKER_PORT = 8883
-SENSOR_DATA_TOPIC = "sensor/+/data"
+SENSOR_DATA_TOPIC = "#"
 
 # In-memory list to store the last 20 messages
 g_messages: List[Dict] = []
