@@ -1,0 +1,5 @@
+fiftyone
+numpy
+Pillow
+flax
+optax
