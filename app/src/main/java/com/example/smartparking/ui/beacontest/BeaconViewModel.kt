@@ -1,14 +1,21 @@
 package com.example.smartparking.ui.beacontest
 
-import android.annotation.SuppressLint
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanResult
 import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.example.smartparking.data.model.Parking
+import com.example.smartparking.data.repository.ParkingRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import okhttp3.Call
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -18,7 +25,9 @@ data class BeaconData(
     val rssiSamples: MutableList<Int> = mutableListOf()
 )
 
-class BeaconViewModel : ViewModel() {
+class BeaconViewModel(
+    private val repository: ParkingRepository
+) : ViewModel() {
 
     private val _beacons = MutableStateFlow<List<BeaconData>>(emptyList())
     val beacons: StateFlow<List<BeaconData>> = _beacons
@@ -26,77 +35,43 @@ class BeaconViewModel : ViewModel() {
     private val _detectedSlot = MutableStateFlow("Belum terdeteksi")
     val detectedSlot: StateFlow<String> = _detectedSlot
 
+    private val _assignResult = MutableStateFlow<String>("")
+    val assignResult: StateFlow<String> = _assignResult
+
     private val handler = Handler(Looper.getMainLooper())
     private val interval: Long = 10_000 // setiap 10 detik
 
     // Dataset fingerprint (mean RSSI dari tiap slot)
     private val fingerprintDataset = mapOf(
-        "Slot A" to mapOf("B1" to -63, "B2" to -81, "B3" to -67),
-        "Slot B" to mapOf("B1" to -70, "B2" to -75, "B3" to -80),
-        "Slot C" to mapOf("B1" to -60, "B2" to -85, "B3" to -72)
+        1 to mapOf("B1" to -63, "B2" to -81, "B3" to -67),
+        2 to mapOf("B1" to -70, "B2" to -75, "B3" to -80),
+        3 to mapOf("B1" to -60, "B2" to -85, "B3" to -72)
     )
+
+//    private val slotMapping = mapOf(
+//        "Slot A" to 1,
+//        "Slot B" to 2,
+//        "Slot C" to 3
+//    )
 
     init {
         startMeanCalculation()
     }
 
-    @SuppressLint("MissingPermission")
     fun startScan() {
-        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-        val scanner = bluetoothAdapter.bluetoothLeScanner
-
-        // Reset list supaya fresh
-        _beacons.value = emptyList()
-
-        val callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val device = result.device
-                val name = device.name ?: return
-
-                // Filter: hanya device dengan nama diawali "Beacon"
-                if (name.startsWith("Beacon", ignoreCase = true)) {
-                    val address = device.address
-                    val rssi = result.rssi
-
-                    // Cek apakah beacon sudah ada di list
-                    val currentList = _beacons.value.toMutableList()
-                    val existing = currentList.find { it.address == address }
-
-                    if (existing != null) {
-                        existing.rssiSamples.add(rssi)
-                    } else {
-                        currentList.add(
-                            BeaconData(
-                                name = name,
-                                address = address,
-                                rssiSamples = mutableListOf(rssi)
-                            )
-                        )
-                    }
-                    _beacons.value = currentList
-                }
-            }
-        }
-
-        // Mulai scanning
-        scanner.startScan(callback)
-
-        // Simpan callback biar bisa stop nanti
-        scanCallback = callback
+        // TODO: tambahkan implementasi scanner BLE kamu di sini
+        // sementara dummy data biar jalan
+        val dummy = listOf(
+            BeaconData("B1", "AA:BB:CC", mutableListOf(-69, -71, -70, -70, -69)), // Rata-rata mendekati -70
+            BeaconData("B2", "DD:EE:FF", mutableListOf(-74, -76, -75, -74, -75)), // Rata-rata mendekati -75
+            BeaconData("B3", "GG:HH:II", mutableListOf(-81, -79, -80, -80, -79))
+        )
+        _beacons.value = dummy
     }
 
-    @SuppressLint("MissingPermission")
     fun stopScan() {
-        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-        val scanner = bluetoothAdapter.bluetoothLeScanner
-        scanCallback?.let { scanner.stopScan(it) }
-        scanCallback = null
         _beacons.value = emptyList()
     }
-
-    // Tambahkan properti di ViewModel:
-    private var scanCallback: ScanCallback? = null
-
 
     private fun startMeanCalculation() {
         handler.postDelayed(object : Runnable {
@@ -133,10 +108,75 @@ class BeaconViewModel : ViewModel() {
             val distance = sqrt(sumSq)
             if (distance < bestDistance) {
                 bestDistance = distance
-                bestSlot = slot
+                bestSlot = slot.toString()
             }
         }
 
         _detectedSlot.value = bestSlot
+    }
+
+    /**
+     * Assign slot ke user berdasarkan hasil deteksi beacon
+     */
+    fun assignSlot(userId: Int, userRole: String) {
+        viewModelScope.launch {
+            val detected = _detectedSlot.value.toInt()
+//            if (detected == "Belum terdeteksi" || detected == "Tidak diketahui") {
+//                _assignResult.value = "Slot belum jelas"
+//                return@launch
+//            }
+            println(detected)
+            val response = repository.getParkings()
+            if (response.isSuccessful) {
+                val parkings = response.body() ?: emptyList()
+
+                println(parkings)
+
+                val slot = parkings.find { it.nomor == detected }
+
+                println("🔍 Akan update slot ${slot?.nomor} dengan user $userId")
+
+                if (slot != null) {
+                    if (slot.status == "false" && slot.rolesUser == userRole) {
+                        val updatedSlot = slot.copy(
+                            userid = userId,
+                            status = "True"
+                        )
+                        val updateRes = repository.updateParking(slot.nomor, updatedSlot)
+
+                        _assignResult.value = if (updateRes.isSuccessful) {
+                            "Slot ${slot.lokasi} berhasil diassign ke user $userId"
+                        } else {
+                            "Gagal update slot di server"
+                        }
+                    } else {
+                        _assignResult.value = "Slot tidak tersedia atau role tidak sesuai"
+
+                        val client = OkHttpClient()
+                        val requestBody = """{"sensor_id": "1"}""".toRequestBody("application/json".toMediaType())
+
+                        val request = Request.Builder()
+                            .url("https://danishritonga-caps-backend.hf.space/pelanggaran") // endpoint untuk IoT
+                            .post(requestBody)
+                            .build()
+
+                        client.newCall(request).enqueue(object : okhttp3.Callback {
+                            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                                println("Gagal kirim data ke IoT: ${e.message}")
+                            }
+
+                            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                                println("Response dari IoT: ${response.body?.string()}")
+                            }
+                        })
+
+                    }
+                } else {
+                    _assignResult.value = "Slot $detected tidak ada di database"
+                }
+            } else {
+                _assignResult.value = "Gagal ambil data parkir dari server"
+            }
+        }
     }
 }

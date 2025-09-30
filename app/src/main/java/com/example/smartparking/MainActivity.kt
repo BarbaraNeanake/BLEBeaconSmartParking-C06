@@ -13,7 +13,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import com.example.smartparking.data.remote.RetrofitClient
+import com.example.smartparking.data.repository.ParkingRepository
 import com.example.smartparking.ui.beacontest.BeaconScreen
+import com.example.smartparking.ui.beacontest.BeaconViewModel
+import com.example.smartparking.ui.beacontest.BeaconViewModelFactory
 import com.example.smartparking.ui.home.HomeScreen
 //import com.example.smartparking.ui.home.HomeScreenPreview
 import com.example.smartparking.ui.home.HomeViewModel
@@ -26,6 +30,9 @@ class MainActivity : ComponentActivity() {
     // Attach ViewModel to the activity
     private val homeViewModel: HomeViewModel by viewModels()
     private val loginViewModel: LoginViewModel by viewModels()
+    private val beaconViewModel: BeaconViewModel by viewModels {
+        BeaconViewModelFactory(ParkingRepository(RetrofitClient.parkingApi))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,7 +47,7 @@ class MainActivity : ComponentActivity() {
 //                        viewModel = homeViewModel,
 //                        modifier = Modifier.padding(innerPadding)
 //                    )
-                    BeaconScreen()
+                    BeaconScreen(beaconViewModel)
 //                    LoginScreen(navController, loginViewModel)
                 }
 

@@ -7,19 +7,19 @@ import retrofit2.Response
 
 class UserRepository {
     suspend fun getUsers(): List<User> {
-        return RetrofitClient.instance.getUsers()
+        return RetrofitClient.userApi.getUsers()
     }
 
     suspend fun createUser(user: R.string): Response<User> {
-        return RetrofitClient.instance.createUser(user)
+        return RetrofitClient.userApi.createUser(user)
     }
 
     suspend fun deleteUser(id: Int): Response<Unit> {
-        return RetrofitClient.instance.deleteUser(id)
+        return RetrofitClient.userApi.deleteUser(id)
     }
 
     suspend fun getUserById(id:Int): Response<User> {
-        return RetrofitClient.instance.getUserById(id)
+        return RetrofitClient.userApi.getUserById(id)
     }
 
 }

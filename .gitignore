@@ -25,6 +25,7 @@ app/release/
 
 # Gradle-related files
 gradle-wrapper.jar
+gradle.properties
 /gradle-wrapper/gradle-wrapper.properties
 /gradle-wrapper/gradle-wrapper.jar
 

@@ -5,7 +5,7 @@ import com.example.smartparking.data.model.User
 import retrofit2.Response
 import retrofit2.http.*
 
-interface ApiService {
+interface UserApiService {
 
     @GET("users")
     suspend fun getUsers(): List<User>

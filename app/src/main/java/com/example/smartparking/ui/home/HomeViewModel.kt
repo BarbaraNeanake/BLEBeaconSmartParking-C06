@@ -13,7 +13,7 @@ class HomeViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState
 
-    private val apiService = RetrofitClient.instance
+    private val apiService = RetrofitClient.userApi
 
     fun setUsername(name: String) {
         _uiState.value = _uiState.value.copy(nama = name)

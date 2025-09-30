@@ -16,9 +16,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun BeaconScreen(viewModel: BeaconViewModel = viewModel()) {
+
     val context = LocalContext.current
     val beacons by viewModel.beacons.collectAsState()
     val detectedSlot by viewModel.detectedSlot.collectAsState()
+    val assignResult by viewModel.assignResult.collectAsState() // <- observe hasil assign
 
     // Launcher untuk request permission
     val launcher = rememberLauncherForActivityResult(
@@ -29,6 +31,13 @@ fun BeaconScreen(viewModel: BeaconViewModel = viewModel()) {
             viewModel.startScan()
         } else {
             Toast.makeText(context, "Permission required to scan", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Kalau ada update hasil assign, tampilkan dengan Toast
+    LaunchedEffect(assignResult) {
+        if (assignResult.isNotEmpty()) {
+            Toast.makeText(context, assignResult, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -62,6 +71,15 @@ fun BeaconScreen(viewModel: BeaconViewModel = viewModel()) {
             text = "Posisi Anda: $detectedSlot",
             style = MaterialTheme.typography.titleLarge
         )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Tombol untuk assign slot ke user (contoh userId = 1, role = "customer")
+        Button(
+            onClick = { viewModel.assignSlot(userId = 2, userRole = "Dosen") }
+        ) {
+            Text("Assign Slot")
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
