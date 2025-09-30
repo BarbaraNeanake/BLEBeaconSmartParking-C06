@@ -24,6 +24,9 @@ import com.example.smartparking.ui.home.HomeViewModel
 import com.example.smartparking.ui.login.LoginScreen
 import com.example.smartparking.ui.login.LoginViewModel
 import com.example.smartparking.ui.theme.SmartParkingTheme
+import com.example.smartparking.ui.home.HomeScreen
+import com.example.smartparking.ui.navigation.NavGraph
+
 
 class MainActivity : ComponentActivity() {
 
@@ -40,15 +43,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             SmartParkingTheme {
                 val state by homeViewModel.uiState.collectAsState()
-                val navController = rememberNavController()
+                NavGraph()
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-//                    HomeScreen(
-//                        viewModel = homeViewModel,
-//                        modifier = Modifier.padding(innerPadding)
-//                    )
-                    BeaconScreen(beaconViewModel)
-//                    LoginScreen(navController, loginViewModel)
+                    HomeScreen(
+                        state = state,
+                        onLogoutClick = { /* TODO */ },
+                        modifier = Modifier.padding(innerPadding)
+                    )
                 }
 
             }

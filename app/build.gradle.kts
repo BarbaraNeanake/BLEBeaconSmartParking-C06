@@ -78,6 +78,17 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
 
     // Unit test & Android test
+    implementation(libs.androidx.material3)
+
+    // --- Navigation + Animations ---
+    implementation("androidx.navigation:navigation-compose:2.8.0")
+    implementation("com.google.accompanist:accompanist-navigation-animation:0.33.2-alpha")
+
+    // --- Lifecycle Compose (viewModel() & collectAsStateWithLifecycle) ---
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+
+    // --- Test ---
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
