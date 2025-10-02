@@ -49,4 +49,4 @@ gradle-wrapper.jar
 deployment/MQTT/testing.py
 
 # comvis
-/comvis/PKLot
+/comvis/datasets
