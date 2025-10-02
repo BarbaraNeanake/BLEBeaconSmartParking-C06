@@ -71,7 +71,7 @@ class TrainState(train_state.TrainState):
     batch_stats: Any
 
 # Load saved model parameters
-dataset_dir = "/home/danishrtg/Projects/SPARK/comvis"
+dataset_dir = os.environ.get("COMVIS_DATASET_DIR", "./comvis")
 save_path = os.path.join(dataset_dir, "model_params.pkl")
 with open(save_path, 'rb') as f:
     model_state = pickle.load(f)
