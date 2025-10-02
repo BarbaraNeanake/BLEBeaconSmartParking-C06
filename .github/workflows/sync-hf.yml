@@ -2,7 +2,7 @@ name: Sync to Hugging Face hub
 
 on:
   push:
-    branches: [Danish] # Triggers on pushes to the main branch
+    branches: [Danish] # Triggers on pushes to the "Danish" branch
 
   # To run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -13,6 +13,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          # Fetches all history for all branches and tags
+          fetch-depth: 0
 
       - name: Push "deployment" folder to Hugging Face Space
         env:
@@ -34,4 +37,4 @@ jobs:
           # Add all files, commit them, and push to the 'main' branch of the remote
           git add .
           git commit -m "Deploy backend to Space"
-          git push --force space HEAD:Danish
+          git push --force space HEAD:main
