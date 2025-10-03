@@ -12,7 +12,7 @@ from torchvision.datasets import CocoDetection
 from sklearn.cluster import KMeans
 print("Imports successful. Torch version:", torch.__version__, "FiftyOne version:", fo.__version__)
 
-local_coco_path = "/home/danishrtg/Projects/SPARK/comvis/datasets/COCO_car"
+local_coco_path = os.path.join(os.getcwd(), "datasets", "COCO_car")
 #%%
 coco_max_samples = 12000
 try:
@@ -63,7 +63,7 @@ val_indices = indices[train_size:train_size + val_size]
 test_indices = indices[train_size + val_size:]
 
 # Export to YOLO format
-output_dir = "parsed_dataset"
+output_dir = os.path.join(os.getcwd(), "datasets", "COCO_car", "parsed_dataset")
 os.makedirs(output_dir, exist_ok=True)
 for split, indices in [("train", train_indices), ("val", val_indices), ("test", test_indices)]:
     split_dir = os.path.join(output_dir, split)
@@ -73,20 +73,53 @@ for split, indices in [("train", train_indices), ("val", val_indices), ("test", 
         img, tgt = car_samples[i]
         img_name = f"{i}.jpg"
         img_path = os.path.join(split_dir, "images", img_name)
-        Image.fromarray(img).save(img_path)
+        img.save(img_path)  # Directly save PIL Image
         label_path = os.path.join(split_dir, "labels", f"{i}.txt")
         with open(label_path, 'w') as f:
             for ann in tgt:
-                if ann['category_id'] == car_id:
-                    x_min, y_min, width, height = ann['bbox']
-                    x_center = x_min + width / 2
-                    y_center = y_min + height / 2
-                    # Normalize to [0, 1] relative to image size (COCO default is variable, assume 640x480)
-                    img_width, img_height = 640, 480  # Adjust if image sizes vary (check a sample)
-                    x_center /= img_width
-                    y_center /= img_height
-                    width /= img_width
-                    height /= img_height
-                    f.write(f"0 {x_center} {y_center} {width} {height}\n")  # Class 0 for car
+                x_min, y_min, width, height = ann['bbox']
+                x_center = x_min + width / 2
+                y_center = y_min + height / 2
+                img_width, img_height = 640, 480  # Adjust if needed
+                x_center /= img_width
+                y_center /= img_height
+                width /= img_width
+                height /= img_height
+                f.write(f"0 {x_center} {y_center} {width} {height}\n")
     print(f"Exported {split} split with {len(indices)} samples to {split_dir}")
 # %%
+bbox_sizes = []
+for _, tgt in car_samples:
+    for ann in tgt:
+        width, height = ann['bbox'][2], ann['bbox'][3]
+        bbox_sizes.append([width * 13 / 640, height * 13 / 480])  # Scale to 13x13 grid
+if not bbox_sizes:
+    raise ValueError("No bounding boxes found for anchor computation")
+bbox_sizes = np.array(bbox_sizes)
+print(f"Extracted {len(bbox_sizes)} bounding box sizes for k-means")
+kmeans = KMeans(n_clusters=5, random_state=0).fit(bbox_sizes)
+anchors = kmeans.cluster_centers_
+print(f"Computed anchors: {anchors}")
+
+# Save anchors for use in train.py
+anchor_output_dir = os.path.join(os.getcwd(), "datasets", "COCO_car", "anchors.npy")
+np.save(anchor_output_dir, anchors)
+print(f"Anchors saved to {anchor_output_dir}")
+
+#%%
+anchors = np.load(anchor_output_dir)
+print("Loaded Anchors:", anchors)
+
+for split in ["train", "val", "test"]:
+    img_dir = os.path.join(output_dir, split, "images")
+    label_dir = os.path.join(output_dir, split, "labels")
+    if not os.path.exists(img_dir) or not os.path.exists(label_dir):
+        print(f"WARNING: {split} split directories missing: {img_dir} or {label_dir}")
+        continue
+    img_count = len([f for f in os.listdir(img_dir) if f.lower().endswith(".jpg")])
+    label_count = len([f for f in os.listdir(label_dir) if f.lower().endswith(".txt")])
+    print(f"{split} split: {img_count} images, {label_count} labels")
+    if img_count != label_count:
+        print(f"WARNING: Mismatch in {split} split - {img_count} images vs {label_count} labels")
+
+print("Dataset verification complete. Ready for training with pre-trained Darknet19 in train.py.")
