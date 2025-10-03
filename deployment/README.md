@@ -1,7 +1,7 @@
 ---
-title: CAPS
+title: SPARK
 emoji: 🚗
-colorFrom: pink
+colorFrom: blue
 colorTo: gray
 sdk: docker
 pinned: false

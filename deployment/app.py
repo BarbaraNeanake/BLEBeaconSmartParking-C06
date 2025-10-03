@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 import paho.mqtt.client as mqtt
 import ssl
 import time
@@ -8,11 +10,21 @@ from pydantic import BaseModel
 
 
 app = FastAPI(
-    title = "CAPS Backend"
+    title = "SPARK Backend"
 )
+
+latest_image: bytes = None
 
 class AlarmPayload(BaseModel):
     sensor_id: str
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://your-username-smart-parking-streamlit.hf.space"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # --- Configuration (from Hugging Face Secrets) ---
 MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST")
@@ -108,3 +120,18 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
     else:
         print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
         return {"status": "error", "message": "Failed to send MQTT message."}
+
+@app.post("/upload")
+async def upload_image(file: UploadFile):
+    if not file.content_type.startswith("image/jpeg"):
+        raise HTTPException(status_code=400, detail="File must be JPEG.")
+    global latest_image
+    latest_image = await file.read()
+    return {"message": "Image received"}
+
+@app.get("/image")
+async def get_image():
+    global latest_image
+    if latest_image is None:
+        raise HTTPException(status_code=404, detail="No image found")
+    return Response(content=latest_image, media_type="image/jpeg")
