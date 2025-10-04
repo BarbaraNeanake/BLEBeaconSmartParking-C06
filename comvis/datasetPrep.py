@@ -27,9 +27,6 @@ try:
 except Exception as e:
     raise ValueError(f"Failed to load COCO dataset: {str(e)}")
 
-#%% preview with FiftyOne
-fo.launch_app(coco_dataset, auto=False)
-
 #%% Export filtered dataset locally
 coco_dataset.export(
     export_dir=local_coco_path,
@@ -47,7 +44,7 @@ dataset = CocoDetection(root_dir, ann_file, transform=None)
 print(f"Loaded COCO dataset with {len(dataset)} total samples")
 
 car_samples = list(dataset)
-print(f"Loaded COCO dataset with {sum(1 for _ in car_samples)} samples")  # Count without storing
+print(f"Loaded COCO dataset with {sum(1 for _ in car_samples)} samples")
 
 #%%
 total_samples = len(car_samples)
@@ -80,7 +77,7 @@ for split, indices in [("train", train_indices), ("val", val_indices), ("test", 
                 x_min, y_min, width, height = ann['bbox']
                 x_center = x_min + width / 2
                 y_center = y_min + height / 2
-                img_width, img_height = 640, 480  # Adjust if needed
+                img_width, img_height = img.size  # Adjust if needed
                 x_center /= img_width
                 y_center /= img_height
                 width /= img_width
