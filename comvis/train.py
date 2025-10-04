@@ -59,73 +59,92 @@ model = model.to(device)
 for param in model.backbone.parameters():
     param.requires_grad = False
 
-# Loss function (custom YOLO loss)
+# Loss function (improved YOLO loss)
 class YOLOLoss(nn.Module):
-    def __init__(self, anchors, device):
+    def __init__(self, anchors, device, lambda_coord=5.0, lambda_noobj=0.5):
         super(YOLOLoss, self).__init__()
         self.anchors = torch.tensor(anchors, dtype=torch.float32).to(device)
         self.device = device
-        self.mse_loss = nn.MSELoss(reduction='sum')
-        self.bce_loss = nn.BCELoss(reduction='sum')
+        self.lambda_coord = lambda_coord
+        self.lambda_noobj = lambda_noobj
+        self.mse_loss = nn.MSELoss(reduction='none')
+        self.bce_loss = nn.BCELoss(reduction='none')
 
     def forward(self, predictions, targets):
         batch_size = predictions.size(0)
         grid_size = predictions.size(2)
         num_anchors = self.anchors.size(0)
+        num_classes = predictions.size(1) // num_anchors - 5
 
         # Reshape predictions: [batch, num_anchors*(5+classes), grid, grid] -> [batch, num_anchors, grid, grid, 5+classes]
         predictions = predictions.view(batch_size, num_anchors, 5 + num_classes, grid_size, grid_size)
         predictions = predictions.permute(0, 1, 3, 4, 2).contiguous()
 
-        # Ensure targets have the same shape as predictions
-        # targets should be [batch, num_anchors, grid, grid, 5]
-        if targets.dim() == 4:
-            # If targets is [batch, num_anchors, grid*grid, 5], reshape it
-            targets = targets.view(batch_size, num_anchors, grid_size, grid_size, 5)
-        
-        # print(f"Predictions shape: {predictions.shape}, Targets shape: {targets.shape}")
-
-        # Apply sigmoid to prediction confidence and class scores
-        pred_conf = torch.sigmoid(predictions[..., 4])
+        # Apply proper YOLO transformations
+        pred_xy = torch.sigmoid(predictions[..., :2])  # x,y should be sigmoid [0,1]
+        pred_wh = predictions[..., 2:4]  # w,h will be exponential with anchors
+        pred_conf = torch.sigmoid(predictions[..., 4])  # confidence sigmoid
         pred_cls = torch.sigmoid(predictions[..., 5:]) if num_classes > 0 else None
-        
-        # Objectness loss
+
+        # Ensure targets have the same shape as predictions
+        if targets.dim() == 4:
+            targets = targets.view(batch_size, num_anchors, grid_size, grid_size, 5)
+
+        # Object mask
         obj_mask = targets[..., 4] > 0
         noobj_mask = ~obj_mask
-        
+
+        # Coordinate loss (only for cells with objects)
+        if obj_mask.sum() > 0:
+            # Extract target coordinates (already in the right format)
+            target_xy = targets[..., :2][obj_mask]  # [0,1] relative to grid cell
+            target_wh = targets[..., 2:4][obj_mask]  # log-space relative to anchors
+            
+            pred_xy_obj = pred_xy[obj_mask]
+            pred_wh_obj = pred_wh[obj_mask]
+            
+            # XY loss - both are in [0,1] range
+            xy_loss = self.mse_loss(pred_xy_obj, target_xy).sum()
+            
+            # WH loss - both are in log-space
+            wh_loss = self.mse_loss(pred_wh_obj, target_wh).sum()
+            
+            coord_loss = xy_loss + wh_loss
+        else:
+            coord_loss = torch.tensor(0.0, device=self.device)
+
+        # Confidence loss
         obj_pred = pred_conf[obj_mask]
         obj_target = targets[..., 4][obj_mask]
         noobj_pred = pred_conf[noobj_mask]
         noobj_target = torch.zeros_like(noobj_pred)
 
-        obj_loss = self.bce_loss(obj_pred, obj_target) if obj_pred.numel() > 0 else torch.tensor(0.0, device=predictions.device)
-        noobj_loss = self.bce_loss(noobj_pred, noobj_target) if noobj_pred.numel() > 0 else torch.tensor(0.0, device=predictions.device)
+        obj_loss = self.bce_loss(obj_pred, obj_target).sum() if obj_pred.numel() > 0 else torch.tensor(0.0, device=self.device)
+        noobj_loss = self.bce_loss(noobj_pred, noobj_target).sum() if noobj_pred.numel() > 0 else torch.tensor(0.0, device=self.device)
 
-        # Coordinate loss (only for cells with objects)
-        if obj_mask.sum() > 0:
-            coord_pred = predictions[..., :4][obj_mask]  # [num_objects, 4]
-            coord_target = targets[..., :4][obj_mask]    # [num_objects, 4]
-            coord_loss = self.mse_loss(coord_pred, coord_target)
-        else:
-            coord_loss = torch.tensor(0.0, device=predictions.device)
-
-        # Class loss (only for cells with objects)
+        # Class loss
         if num_classes > 0 and obj_mask.sum() > 0:
-            class_pred = pred_cls[obj_mask]  # [num_objects, num_classes]
-            # For single class, target is always 1
-            class_target = torch.ones_like(class_pred)
-            class_loss = self.bce_loss(class_pred, class_target)
+            class_pred = pred_cls[obj_mask]
+            class_target = torch.ones_like(class_pred)  # For single class
+            class_loss = self.bce_loss(class_pred, class_target).sum()
         else:
-            class_loss = torch.tensor(0.0, device=predictions.device)
+            class_loss = torch.tensor(0.0, device=self.device)
 
-        # Total loss with weights
-        total_loss = 5.0 * coord_loss + obj_loss + 0.5 * noobj_loss + class_loss
+        # Normalize by batch size and apply weights
+        batch_norm = batch_size
+        total_loss = (
+            self.lambda_coord * coord_loss / batch_norm +
+            obj_loss / batch_norm +
+            self.lambda_noobj * noobj_loss / batch_norm +
+            class_loss / batch_norm
+        )
+
         return total_loss
 
 # Dataset and DataLoader
 root_dir = os.path.join(os.getcwd(), "datasets", "COCO_car", "parsed_dataset")
-train_dataset = ParsedYOLODataset(root_dir, "train", transform=train_transform, img_size=img_size)
-val_dataset = ParsedYOLODataset(root_dir, "val", transform=train_transform, img_size=img_size)
+train_dataset = ParsedYOLODataset(root_dir, "train", transform=train_transform, img_size=img_size, augment=True)
+val_dataset = ParsedYOLODataset(root_dir, "val", transform=train_transform, img_size=img_size, augment=False)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
@@ -135,7 +154,7 @@ scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.5)  # Red
 
 # Load anchors
 anchors = train_dataset.get_anchors()
-criterion = YOLOLoss(anchors, device)
+criterion = YOLOLoss(anchors, device, lambda_coord=5.0, lambda_noobj=0.5)
 
 # Enable CUDA debugging
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
@@ -209,5 +228,5 @@ for epoch in range(num_epochs):
 print("Training finished. Save model if needed:")
 # torch.save(model.state_dict(), 'yolov2_resnet_car.pth')
 # %%
-torch.save(model.state_dict(), 'detector_car.pth')
+torch.save(model.state_dict(), 'detector_car2.pth')
 # %%
