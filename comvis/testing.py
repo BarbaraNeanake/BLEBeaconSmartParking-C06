@@ -1,161 +1,270 @@
-import jax
-import jax.numpy as jnp
-from flax import linen as nn
-from flax.training import train_state
-import optax
+import torch
+import torch.nn as nn
 import numpy as np
 from PIL import Image
 import os
-import pickle
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from typing import Any
+from torchvision import transforms
+from torchvision.models import resnet50
+import cv2
 
-# Define the model architecture
-class ModifiedYOLOv1(nn.Module):
-    grid_size: int = 13  # 13x13 grid
-    num_boxes: int = 2  # 2 boxes per cell
-    num_classes: int = 1  # "car"
+# YOLOv2-ResNet Model Definition (same as in train.py)
+class YOLOv2ResNet(nn.Module):
+    def __init__(self, num_anchors=5, num_classes=1):
+        super(YOLOv2ResNet, self).__init__()
+        # Load pre-trained ResNet50
+        self.backbone = resnet50(pretrained=False)  # Set to False since we're loading trained weights
+        # Remove the final fully connected layer
+        self.backbone = nn.Sequential(*list(self.backbone.children())[:-2])
+        # Add custom YOLOv2 detection head
+        self.conv = nn.Sequential(
+            nn.Conv2d(2048, 1024, kernel_size=3, padding=1),
+            nn.BatchNorm2d(1024),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(1024, 512, kernel_size=1),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(512, num_anchors * (5 + num_classes), kernel_size=1)
+        )
 
-    @nn.compact
-    def __call__(self, x, train: bool = False):
-        x = nn.Conv(64, kernel_size=(7, 7), strides=(2, 2), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-        x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))  # 416/4 = 104
-
-        x = nn.Conv(192, kernel_size=(3, 3), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-        x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))  # 104/2 = 52
-
-        x = nn.Conv(128, kernel_size=(1, 1), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        x = nn.Conv(256, kernel_size=(3, 3), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        x = nn.Conv(256, kernel_size=(1, 1), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        x = nn.Conv(512, kernel_size=(3, 3), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-        x = nn.max_pool(x, window_shape=(2, 2), strides=(2, 2))  # 52/2 = 26
-
-        x = nn.Conv(256, kernel_size=(1, 1), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        x = nn.Conv(512, kernel_size=(3, 3), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        x = nn.Conv(512, kernel_size=(3, 3), padding='SAME')(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        x = nn.Conv(1024, kernel_size=(3, 3), strides=(2, 2), padding='SAME')(x)  # 26/2 = 13
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = jax.nn.leaky_relu(x)
-
-        out_channels = self.num_boxes * (4 + 1) + self.num_classes  # 11
-        x = nn.Conv(out_channels, kernel_size=(1, 1), padding='SAME')(x)
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.conv(x)
         return x
 
-# TrainState for managing params and batch_stats
-class TrainState(train_state.TrainState):
-    batch_stats: Any
+# Device configuration
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
-# Load saved model parameters
-dataset_dir = os.environ.get("COMVIS_DATASET_DIR", "./comvis")
-save_path = os.path.join(dataset_dir, "model_params.pkl")
-with open(save_path, 'rb') as f:
-    model_state = pickle.load(f)
+# Model parameters
+num_anchors = 5
+num_classes = 1
+img_size = 416
+grid_size = 13
 
-# Initialize model and state
-model = ModifiedYOLOv1()
-rng = jax.random.PRNGKey(0)
-variables = model.init(rng, jnp.ones((1, 416, 416, 3)), train=False)
-state = TrainState.create(
-    apply_fn=model.apply,
-    params=model_state['params'],
-    batch_stats=model_state['batch_stats'],
-    tx=optax.adam(1e-3)  # Optimizer not needed for inference, but required by TrainState
-)
+# Load the trained model
+model = YOLOv2ResNet(num_anchors=num_anchors, num_classes=num_classes)
 
-# Preprocess image
+# Load model weights (adjust path to your saved model)
+model_path = "best_yolov2_resnet_car.pth"  # or "detector_car.pth"
+if os.path.exists(model_path):
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    print(f"Model loaded from {model_path}")
+else:
+    print(f"Model file {model_path} not found! Please check the path.")
+    exit()
+
+model = model.to(device)
+model.eval()
+
+# Load anchors
+anchors_path = os.path.join("datasets", "COCO_car", "anchors.npy")
+if os.path.exists(anchors_path):
+    anchors = np.load(anchors_path)
+    print(f"Anchors loaded: {anchors}")
+else:
+    # Fallback anchors if file not found
+    anchors = np.array([[1.3221, 1.73145], [3.19275, 4.00944], [5.05587, 8.09892], 
+                       [9.47112, 4.84053], [11.2364, 10.0071]])
+    print("Using fallback anchors")
+
+# Image preprocessing (same as training)
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+# Preprocess image for PyTorch model
 def preprocess_image(image_path):
-    img = Image.open(image_path).resize((416, 416))
-    img_array = np.array(img) / 255.0  # Normalize to [0,1]
-    return jnp.expand_dims(img_array, 0)
+    """Load and preprocess image for the model"""
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize((img_size, img_size), Image.BILINEAR)
+    img_tensor = transform(img)
+    return img_tensor.unsqueeze(0)  # Add batch dimension
 
-# Decode predictions
-def decode_predictions(pred_grid, grid_size=13, conf_threshold=0.5):
-    batch_size = pred_grid.shape[0]
-    boxes = []
-    scores = []
+# Decode YOLO predictions
+def decode_predictions(predictions, anchors, conf_threshold=0.5, nms_threshold=0.4):
+    """
+    Decode YOLO predictions into bounding boxes
+    predictions: [batch_size, num_anchors*(5+num_classes), grid_size, grid_size]
+    """
+    batch_size = predictions.size(0)
+    grid_size = predictions.size(2)
+    num_anchors = len(anchors)
+    
+    # Reshape predictions: [batch, num_anchors, grid, grid, 5+num_classes]
+    predictions = predictions.view(batch_size, num_anchors, 5 + num_classes, grid_size, grid_size)
+    predictions = predictions.permute(0, 1, 3, 4, 2).contiguous()
+    
+    # Apply transformations
+    pred_xy = torch.sigmoid(predictions[..., :2])  # x,y coordinates [0,1]
+    pred_wh = predictions[..., 2:4]  # w,h in log space
+    pred_conf = torch.sigmoid(predictions[..., 4])  # confidence [0,1]
+    pred_cls = torch.sigmoid(predictions[..., 5:]) if num_classes > 0 else None
+    
+    all_boxes = []
+    all_scores = []
+    all_classes = []
+    
     for b in range(batch_size):
-        pred_grid_b = pred_grid[b]  # Shape: (13, 13, 11)
         for i in range(grid_size):
             for j in range(grid_size):
-                for k in range(2):  # 2 boxes per cell
-                    offset = k * 5
-                    conf = jax.nn.sigmoid(pred_grid_b[i, j, offset + 4])
-                    if conf >= conf_threshold:
-                        x = (j + jax.nn.sigmoid(pred_grid_b[i, j, offset])) * (1.0 / grid_size)
-                        y = (i + jax.nn.sigmoid(pred_grid_b[i, j, offset + 1])) * (1.0 / grid_size)
-                        w = pred_grid_b[i, j, offset + 2] ** 2  # Convert back from sqrt
-                        h = pred_grid_b[i, j, offset + 3] ** 2  # Convert back from sqrt
-                        x_min = x - w / 2
-                        y_min = y - h / 2
-                        x_max = x + w / 2
-                        y_max = y + h / 2
-                        boxes.append([x_min, y_min, x_max, y_max])
-                        scores.append(float(conf))
-    return np.array(boxes), np.array(scores)
+                for k in range(num_anchors):
+                    confidence = pred_conf[b, k, i, j].item()
+                    
+                    if confidence >= conf_threshold:
+                        # Calculate box coordinates
+                        x_center = (j + pred_xy[b, k, i, j, 0].item()) / grid_size
+                        y_center = (i + pred_xy[b, k, i, j, 1].item()) / grid_size
+                        
+                        # Convert from log space and scale by anchors
+                        w = torch.exp(pred_wh[b, k, i, j, 0]).item() * anchors[k, 0] / grid_size
+                        h = torch.exp(pred_wh[b, k, i, j, 1]).item() * anchors[k, 1] / grid_size
+                        
+                        # Convert to corner coordinates
+                        x_min = x_center - w / 2
+                        y_min = y_center - h / 2
+                        x_max = x_center + w / 2
+                        y_max = y_center + h / 2
+                        
+                        # Clamp to [0, 1]
+                        x_min = max(0, min(1, x_min))
+                        y_min = max(0, min(1, y_min))
+                        x_max = max(0, min(1, x_max))
+                        y_max = max(0, min(1, y_max))
+                        
+                        all_boxes.append([x_min, y_min, x_max, y_max])
+                        all_scores.append(confidence)
+                        all_classes.append(0)  # Car class
+    
+    if len(all_boxes) == 0:
+        return np.array([]), np.array([]), np.array([])
+    
+    # Convert to numpy arrays
+    boxes = np.array(all_boxes)
+    scores = np.array(all_scores)
+    classes = np.array(all_classes)
+    
+    # Apply Non-Maximum Suppression
+    if len(boxes) > 0:
+        # Convert to format expected by cv2.dnn.NMSBoxes: [x, y, w, h]
+        boxes_nms = []
+        for box in boxes:
+            x_min, y_min, x_max, y_max = box
+            w = x_max - x_min
+            h = y_max - y_min
+            boxes_nms.append([x_min, y_min, w, h])
+        
+        indices = cv2.dnn.NMSBoxes(boxes_nms, scores.tolist(), conf_threshold, nms_threshold)
+        
+        if len(indices) > 0:
+            indices = indices.flatten()
+            return boxes[indices], scores[indices], classes[indices]
+    
+    return boxes, scores, classes
 
 # Visualize predictions
-def visualize_predictions(image_path, boxes, scores, output_path):
-    img = Image.open(image_path).resize((416, 416))
-    fig, ax = plt.subplots(1)
+def visualize_predictions(image_path, boxes, scores, classes, output_path):
+    """Visualize bounding box predictions on the image"""
+    img = Image.open(image_path).convert("RGB")
+    original_size = img.size
+    
+    fig, ax = plt.subplots(1, figsize=(12, 8))
     ax.imshow(img)
-    for box, score in zip(boxes, scores):
+    
+    for i, (box, score, cls) in enumerate(zip(boxes, scores, classes)):
         x_min, y_min, x_max, y_max = box
-        rect = patches.Rectangle((x_min * 416, y_min * 416), (x_max - x_min) * 416, (y_max - y_min) * 416,
-                                linewidth=1, edgecolor='r', facecolor='none')
+        
+        # Convert normalized coordinates to pixel coordinates
+        x_min_px = x_min * original_size[0]
+        y_min_px = y_min * original_size[1]
+        x_max_px = x_max * original_size[0]
+        y_max_px = y_max * original_size[1]
+        
+        width = x_max_px - x_min_px
+        height = y_max_px - y_min_px
+        
+        # Create rectangle
+        rect = patches.Rectangle(
+            (x_min_px, y_min_px), width, height,
+            linewidth=2, edgecolor='red', facecolor='none'
+        )
         ax.add_patch(rect)
-        ax.text(x_min * 416, y_min * 416, f'{score:.2f}', color='r', fontsize=8)
+        
+        # Add label
+        label = f'Car: {score:.2f}'
+        ax.text(
+            x_min_px, y_min_px - 10, label,
+            color='red', fontsize=12, fontweight='bold',
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.7)
+        )
+    
+    ax.set_title(f'Car Detection Results - {len(boxes)} cars detected', fontsize=14)
     plt.axis('off')
-    plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches='tight', dpi=150)
     plt.close()
+    print(f"Visualization saved to: {output_path}")
 
-# Test the model
-test_dir = os.path.join(dataset_dir, "test_images")
-os.makedirs(test_dir, exist_ok=True)
-
-# Example: Test on all images in test_images folder
-test_images = [f for f in os.listdir(test_dir) if f.endswith(('.jpg', '.png'))]
-if not test_images:
-    print("No test images found in test_images folder. Please add images and rerun.")
-else:
+# Test the model on images
+def test_model():
+    """Test the trained model on images"""
+    
+    # Create test directories
+    test_dir = "test_images"
+    results_dir = "test_results"
+    os.makedirs(test_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
+    
+    print(f"Looking for test images in: {test_dir}")
+    print(f"Results will be saved to: {results_dir}")
+    
+    # Get test images
+    test_images = [f for f in os.listdir(test_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
+    
+    if not test_images:
+        print(f"No test images found in {test_dir} folder.")
+        print("Please add some images to test and rerun.")
+        return
+    
+    print(f"Found {len(test_images)} test images")
+    
+    # Test each image
     for img_file in test_images:
+        print(f"\n--- Testing {img_file} ---")
         image_path = os.path.join(test_dir, img_file)
-        processed_image = preprocess_image(image_path)
-        pred_grid = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, processed_image, train=False)
-        boxes, scores = decode_predictions(pred_grid)
-        print(f"Image: {img_file}, Detected boxes: {len(boxes)}, Scores: {scores}")
-        output_path = os.path.join(test_dir, f"predicted_{img_file}")
-        visualize_predictions(image_path, boxes, scores, output_path)
-        print(f"Prediction saved to {output_path}")
+        
+        try:
+            # Preprocess image
+            processed_image = preprocess_image(image_path)
+            processed_image = processed_image.to(device)
+            
+            # Run inference
+            with torch.no_grad():
+                predictions = model(processed_image)
+            
+            # Decode predictions
+            boxes, scores, classes = decode_predictions(
+                predictions.cpu(), anchors, conf_threshold=0.3, nms_threshold=0.4
+            )
+            
+            print(f"Detected {len(boxes)} cars")
+            if len(scores) > 0:
+                print(f"Confidence scores: {scores}")
+                print(f"Average confidence: {np.mean(scores):.3f}")
+            
+            # Save visualization
+            output_filename = f"result_{img_file}"
+            output_path = os.path.join(results_dir, output_filename)
+            visualize_predictions(image_path, boxes, scores, classes, output_path)
+            
+        except Exception as e:
+            print(f"Error processing {img_file}: {str(e)}")
+    
+    print(f"\n--- Testing Complete ---")
+    print(f"Check the '{results_dir}' folder for visualization results")
 
-# Example: Test on a single image (uncomment and adjust path as needed)
-single_image_path = "comvis/test1.jpg"
-processed_image = preprocess_image(single_image_path)
-pred_grid = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, processed_image, train=False)
-boxes, scores = decode_predictions(pred_grid)
-print(f"Detected boxes: {len(boxes)}, Scores: {scores}")
-visualize_predictions(single_image_path, boxes, scores, "predicted_single_image.png")
+# Run the test
+if __name__ == "__main__":
+    test_model()

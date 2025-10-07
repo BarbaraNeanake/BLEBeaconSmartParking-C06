@@ -50,3 +50,6 @@ deployment/MQTT/testing.py
 
 # comvis
 /comvis/datasets
+/comvis/__pycache__
+/comvis/models
+/comvis/docs
