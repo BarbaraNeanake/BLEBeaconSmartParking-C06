@@ -10,10 +10,7 @@ from PIL import Image
 sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
 
 # Import utils modules
-from utils.config import Config, default_config
-from utils.train_utils import train_model
-from utils.inference_utils import run_inference
-from utils.data_utils import compute_anchors
+from utils import Config, default_config, train_model, run_inference, compute_anchors
 
 
 #%% Device Setup

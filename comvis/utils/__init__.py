@@ -6,9 +6,9 @@ Modular utilities for YOLOv2-ResNet car detection pipeline
 from .model import YOLOv2ResNet
 from .loss import CIoUYOLOLoss
 from .data_utils import ParsedYOLODataset, compute_anchors
-from .train_utils import ModelTrainer
-from .inference_utils import ModelInference
-from .config import Config
+from .train_utils import ModelTrainer, train_model
+from .inference_utils import ModelInference, run_inference
+from .config import Config, default_config
 
 __all__ = [
     'YOLOv2ResNet',
@@ -16,6 +16,9 @@ __all__ = [
     'ParsedYOLODataset',
     'compute_anchors',
     'ModelTrainer',
+    'train_model',
     'ModelInference',
-    'Config'
+    'run_inference',
+    'Config',
+    'default_config'
 ]
