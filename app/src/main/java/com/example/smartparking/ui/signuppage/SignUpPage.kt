@@ -27,11 +27,7 @@ import com.example.smartparking.R
 import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SignUpPage(
     vm: SignUpViewModel = viewModel(),
@@ -46,52 +42,43 @@ fun SignUpPage(
         ui = ui,
         onName = vm::onName,
         onEmail = vm::onEmail,
-        onBirthDatePick = vm::onBirthDateMillis,
+        onPlate = vm::onLicensePlate,
         onCountryCode = vm::onCountryCode,
         onPhone = vm::onPhone,
         onPassword = vm::onPassword,
+        onConfirmPassword = vm::onConfirmPassword,
         onTogglePassword = vm::togglePwd,
+        onToggleConfirmPassword = vm::toggleConfirmPwd,
         onRegister = vm::register,
         onBackToLogin = onBackToLogin
     )
 }
 
-/** ---------- Stateless UI so it’s Preview-friendly ---------- */
-@OptIn(ExperimentalMaterial3Api::class)
+/** ---------- Stateless UI (Preview friendly) ---------- */
 @Composable
 fun SignUpContent(
     ui: SignUpUiState,
     onName: (String) -> Unit,
     onEmail: (String) -> Unit,
-    onBirthDatePick: (Long) -> Unit,
+    onPlate: (String) -> Unit,
     onCountryCode: (String) -> Unit,
     onPhone: (String) -> Unit,
     onPassword: (String) -> Unit,
+    onConfirmPassword: (String) -> Unit,
     onTogglePassword: () -> Unit,
+    onToggleConfirmPassword: () -> Unit,
     onRegister: () -> Unit,
     onBackToLogin: () -> Unit
 ) {
-    // gradient
+    // Background gradient yang sama seperti halaman lain
     val gradient = remember {
-        Brush.verticalGradient(listOf(GradientTop.copy(0.9f), Color.White, GradientBottom.copy(0.9f)))
-    }
-
-    // date picker dialog
-    var showDatePicker by remember { mutableStateOf(false) }
-    val dateState = rememberDatePickerState(
-        initialSelectedDateMillis = ui.birthDateMillis ?: Instant.now().toEpochMilli()
-    )
-    if (showDatePicker) {
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    dateState.selectedDateMillis?.let(onBirthDatePick)
-                    showDatePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
-        ) { DatePicker(state = dateState) }
+        Brush.verticalGradient(
+            listOf(
+                GradientTop.copy(alpha = 0.9f),
+                Color.White,
+                GradientBottom.copy(alpha = 0.9f)
+            )
+        )
     }
 
     Box(
@@ -100,65 +87,82 @@ fun SignUpContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // back
-        Text(
-            text = "←",
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .clickable { onBackToLogin() }
-                .padding(8.dp),
-            style = MaterialTheme.typography.titleLarge
-        )
-
-        // header logo
+        // ===== Header (logo + SPARK + subtitle) — diturunin sedikit =====
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.TopCenter),
+                .align(Alignment.TopCenter)
+                .padding(top = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(8.dp))
             Image(
                 painter = painterResource(id = R.drawable.ugm_logo),
                 contentDescription = "UGM Logo",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(56.dp)
             )
             Spacer(Modifier.height(8.dp))
+            Text(
+                text = "SPARK",
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold
+                ),
+                color = Color(0xFF0A2342), // navy
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Smart Parking System",
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                textAlign = TextAlign.Center
+            )
         }
 
-        // card
+        // ===== Card form (putih + bayangan) =====
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.Center),
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(20.dp),
-                horizontalAlignment = Alignment.Start
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Title & link login (center)
                 Text(
-                    "Sign up",
+                    "Sign Up",
                     style = MaterialTheme.typography.headlineLarge.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 28.sp
-                    )
+                    ),
+                    textAlign = TextAlign.Center
                 )
-                Spacer(Modifier.height(4.dp))
-                Row {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text("Already have an account? ")
                     Text(
                         "Login",
                         color = MaterialTheme.colorScheme.primary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.clickable { onBackToLogin() }
                     )
                 }
 
                 Spacer(Modifier.height(16.dp))
 
+                // Full Name
                 OutlinedTextField(
                     value = ui.name,
                     onValueChange = onName,
@@ -169,6 +173,7 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
+                // Email
                 OutlinedTextField(
                     value = ui.email,
                     onValueChange = onEmail,
@@ -179,23 +184,13 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Birth date
+                // License Plate (ganti Birth of Date)
                 OutlinedTextField(
-                    value = ui.birthDateFormatted,
-                    onValueChange = {},
-                    label = { Text("Birth of date") },
-                    readOnly = true,
-                    trailingIcon = {
-                        IconButton(onClick = { showDatePicker = true }) {
-                            Icon(
-                                painter = painterResource(id = android.R.drawable.ic_menu_today),
-                                contentDescription = "Pick date"
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showDatePicker = true }
+                    value = ui.licensePlate,
+                    onValueChange = onPlate,
+                    label = { Text("License Plate (e.g., AB 1234 CD)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Spacer(Modifier.height(12.dp))
@@ -227,13 +222,13 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
+                // Password
                 OutlinedTextField(
                     value = ui.password,
                     onValueChange = onPassword,
-                    label = { Text("Set Password") },
+                    label = { Text("Password") },
                     singleLine = true,
-                    visualTransformation =
-                        if (ui.showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = if (ui.showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         Text(
                             if (ui.showPassword) "Hide" else "Show",
@@ -246,16 +241,41 @@ fun SignUpContent(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                Spacer(Modifier.height(12.dp))
+
+                // Confirm Password
+                OutlinedTextField(
+                    value = ui.confirmPassword,
+                    onValueChange = onConfirmPassword,
+                    label = { Text("Confirm Password") },
+                    singleLine = true,
+                    visualTransformation = if (ui.showConfirmPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Text(
+                            if (ui.showConfirmPassword) "Hide" else "Show",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .clickable { onToggleConfirmPassword() }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 if (ui.error != null) {
                     Spacer(Modifier.height(8.dp))
-                    Text(ui.error!!, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Start)
+                    Text(
+                        ui.error!!,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
                 }
 
                 Spacer(Modifier.height(16.dp))
 
                 Button(
                     onClick = onRegister,
-                    enabled = !ui.loading,
+                    enabled = ui.canSubmit && !ui.loading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
@@ -276,7 +296,7 @@ fun SignUpContent(
     }
 }
 
-/* -------- PREVIEW (stateless) -------- */
+/* -------- PREVIEW -------- */
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "SignUp – Light")
 @Composable
 private fun PreviewSignUp() {
@@ -285,13 +305,17 @@ private fun PreviewSignUp() {
             ui = SignUpUiState(
                 name = "Barbara Neanake Ajiesti",
                 email = "barbaraneanake@ugm.ac.id",
-                birthDateMillis = System.currentTimeMillis(),
+                licensePlate = "AB 1234 CD",
                 countryCode = "+62",
-                phoneNumber = "81234567890"
+                phoneNumber = "81234567890",
+                password = "secret123",
+                confirmPassword = "secret123",
+                canSubmit = true
             ),
-            onName = {}, onEmail = {}, onBirthDatePick = {},
+            onName = {}, onEmail = {}, onPlate = {},
             onCountryCode = {}, onPhone = {},
-            onPassword = {}, onTogglePassword = {},
+            onPassword = {}, onConfirmPassword = {},
+            onTogglePassword = {}, onToggleConfirmPassword = {},
             onRegister = {}, onBackToLogin = {}
         )
     }

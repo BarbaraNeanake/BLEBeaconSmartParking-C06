@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.History
+//import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Map
+//import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -36,8 +36,8 @@ fun DrawerContent(
 ) {
     val items = listOf(
         DrawerItem("Home", Icons.Filled.Home, "home"),
-        DrawerItem("Live Parking Map", Icons.Filled.Map, "live_parking"),
-        DrawerItem("History", Icons.Filled.History, "history"),
+        DrawerItem("Live Parking Map", Icons.Filled.Info, "live_parking"),
+        DrawerItem("History", Icons.Filled.Info, "history"),
         DrawerItem("Information", Icons.Filled.Info, "information"),
         DrawerItem("Logout", Icons.Filled.ExitToApp, "logout"),
     )

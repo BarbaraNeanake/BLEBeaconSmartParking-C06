@@ -16,6 +16,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -25,14 +27,21 @@ import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 
+// Pilihan warna aman (navy / hitam)
+private val SparkNavy = Color(0xFF0A2342)
+private val SparkBlack = Color(0xFF111111)
 
 @Composable
-fun LandingPage(
-    appName: String = "Smart Parking FT UGM",
+fun LandingPageScreen(
+    brandName: String = "SPARK",
+    subTitle: String = "Smart Parking FT UGM",
     onNavigateNext: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    brandColor: Color = SparkNavy,
+    brandFont: FontFamily = FontFamily.SansSerif,
+    subtitleFont: FontFamily = FontFamily.SansSerif,
+    appName: String
 ) {
-    // Gradasi lembut (atas & bawah biru muda, tengah putih)
     val gradient = remember {
         Brush.verticalGradient(
             listOf(
@@ -43,15 +52,12 @@ fun LandingPage(
         )
     }
 
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = Color.Transparent
-    ) {
+    Surface(modifier = modifier.fillMaxSize(), color = Color.Transparent) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(gradient)
-                .clickable(onClick = onNavigateNext) // <<-- klik di mana pun
+                .clickable(onClick = onNavigateNext)
                 .padding(horizontal = 24.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -68,11 +74,31 @@ fun LandingPage(
 
                 Spacer(Modifier.height(16.dp))
 
+                // --- BRAND: SPARK (navy/black + font berbeda) ---
                 Text(
-                    text = appName,
-                    style = MaterialTheme.typography.displayLarge.copy(fontSize = 28.sp),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    textAlign = TextAlign.Center
+                    text = brandName,
+                    textAlign = TextAlign.Center,
+                    color = brandColor,
+                    style = MaterialTheme.typography.displayLarge.copy(
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.2.sp,
+                        fontFamily = brandFont
+                    )
+                )
+
+                Spacer(Modifier.height(6.dp))
+
+                // --- Subtitle: Smart Parking FT UGM (font lain) ---
+                Text(
+                    text = subTitle,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.90f),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 20.sp,
+                        fontFamily = subtitleFont,
+                        fontWeight = FontWeight.Medium
+                    )
                 )
             }
         }
@@ -81,18 +107,36 @@ fun LandingPage(
 
 /* ============================== PREVIEWS ============================== */
 
-@Preview(name = "Landing – Light", uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
+@Preview(name = "Landing – Navy", uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
 @Composable
-private fun PreviewLandingLight() {
+private fun PreviewLandingNavy() {
     SmartParkingTheme(darkTheme = false, dynamicColor = false) {
-        LandingPage()
+        LandingPageScreen(
+            brandName = TODO(),
+            subTitle = TODO(),
+            onNavigateNext = TODO(),
+            modifier = TODO(),
+            brandColor = TODO(),
+            brandFont = TODO(),
+            subtitleFont = TODO(),
+            appName = TODO()
+        )
     }
 }
 
-@Preview(name = "Landing – Dark", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
+@Preview(name = "Landing – Black", uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
 @Composable
-private fun PreviewLandingDark() {
-    SmartParkingTheme(darkTheme = true, dynamicColor = false) {
-        LandingPage()
+private fun PreviewLandingBlack() {
+    SmartParkingTheme(darkTheme = false, dynamicColor = false) {
+        LandingPageScreen(
+            brandColor = SparkBlack,
+            brandName = TODO(),
+            subTitle = TODO(),
+            onNavigateNext = TODO(),
+            modifier = TODO(),
+            brandFont = TODO(),
+            subtitleFont = TODO(),
+            appName = TODO(),
+        )
     }
 }
