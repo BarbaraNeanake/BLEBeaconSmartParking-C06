@@ -34,7 +34,7 @@ fun AppScaffold(
     ) {
         Scaffold(
             topBar = {
-                SmallTopAppBar(
+                TopAppBar(
                     title = { Text(topBarTitle) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {

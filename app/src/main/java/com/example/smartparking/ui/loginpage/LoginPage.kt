@@ -67,11 +67,14 @@ private fun LoginContent(
     onSignUpClick: () -> Unit,
     onForgotPasswordClick: () -> Unit
 ) {
-    val gradient = Brush.verticalGradient(
-        listOf(
-            GradientTop.copy(alpha = 0.9f),
-            Color.White,
-            GradientBottom.copy(alpha = 0.9f)
+    // background: soft gradient (bukan merah)
+    val gradient = remember {
+        Brush.verticalGradient(
+            listOf(
+                GradientTop.copy(alpha = 0.9f),
+                Color.White,
+                GradientBottom.copy(alpha = 0.9f)
+            )
         )
     )
 
@@ -81,36 +84,49 @@ private fun LoginContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Header
+        // ===== Header (logo + SPARK + subtitle), diturunin sedikit =====
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.TopCenter),
+                .align(Alignment.TopCenter)
+                .padding(top = 32.dp),        // turunin posisinya
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(8.dp))
             Image(
                 painter = painterResource(id = R.drawable.ugm_logo),
                 contentDescription = "UGM Logo",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(56.dp)
             )
             Spacer(Modifier.height(8.dp))
             Text(
+                text = "SPARK",
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.ExtraBold
+                ),
+                color = Color(0xFF0A2342),          // navy
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
                 text = "Smart Parking System",
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontSize = 22.sp,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold
-                )
+                ),
+                textAlign = TextAlign.Center
             )
         }
 
-        // Card form
+        // ===== Card form =====
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.Center),
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -122,15 +138,6 @@ private fun LoginContent(
                     "Login",
                     style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
                 )
-                Spacer(Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Don’t have an account? ")
-                    Text(
-                        "Sign Up",
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onSignUpClick() }
-                    )
-                }
 
                 Spacer(Modifier.height(16.dp))
 
@@ -174,12 +181,13 @@ private fun LoginContent(
                     Text(
                         "Forgot Password ?",
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onForgotPasswordClick() }
+                        modifier = Modifier.clickable { onForgotPasswordClick() } // → EditPassPage
                     )
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
 
+                // Primary action
                 Button(
                     onClick = onLoginClick,
                     enabled = !ui.loading,
@@ -198,29 +206,32 @@ private fun LoginContent(
                     }
                 }
 
-                when {
-                    ui.errorMessage != null -> {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = ui.errorMessage,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    ui.isLoggedIn -> {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "Login berhasil!",
-                            color = Color(0xFF2E7D32),
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                // Tonjolkan Sign Up (secondary full-width)
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onSignUpClick,
+                    enabled = !ui.loading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Text("Sign Up")
+                }
+
+                if (ui.errorMessage != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = ui.errorMessage!!,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
     }
 }
 
+/* ======= PREVIEWS ======= */
 @Preview(
     showBackground = true,
     name = "Login – Light",
