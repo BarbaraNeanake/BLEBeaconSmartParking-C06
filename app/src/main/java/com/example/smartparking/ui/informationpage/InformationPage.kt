@@ -7,9 +7,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Shield
+//import androidx.compose.material.icons.filled.Security
+//import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -99,7 +100,7 @@ fun InformationPage(
 
             item {
                 DecoratedCard(
-                    leading = { Icon(Icons.Filled.Security, contentDescription = null) }
+                    leading = { Icon(Icons.Filled.Build, contentDescription = null) }
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Bullet("Memakai helm (untuk motor) dan sabuk pengaman (untuk mobil)")

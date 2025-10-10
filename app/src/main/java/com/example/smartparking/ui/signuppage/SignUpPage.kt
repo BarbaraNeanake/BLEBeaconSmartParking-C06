@@ -30,6 +30,7 @@ import com.example.smartparking.ui.theme.SmartParkingTheme
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,10 +77,20 @@ fun SignUpContent(
         Brush.verticalGradient(listOf(GradientTop.copy(0.9f), Color.White, GradientBottom.copy(0.9f)))
     }
 
+    val uiDateFormatter = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
+    fun toMillisOrNow(dateStr: String): Long {
+        return try {
+            val ld = LocalDate.parse(dateStr, uiDateFormatter)
+            ld.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        } catch (_: Exception) {
+            Instant.now().toEpochMilli()
+        }
+    }
+
     // date picker dialog
     var showDatePicker by remember { mutableStateOf(false) }
     val dateState = rememberDatePickerState(
-        initialSelectedDateMillis = ui.birthDateMillis ?: Instant.now().toEpochMilli()
+        initialSelectedDateMillis = toMillisOrNow(ui.birthDateFormatted)
     )
     if (showDatePicker) {
         DatePickerDialog(
@@ -277,22 +288,22 @@ fun SignUpContent(
 }
 
 /* -------- PREVIEW (stateless) -------- */
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "SignUp – Light")
-@Composable
-private fun PreviewSignUp() {
-    SmartParkingTheme {
-        SignUpContent(
-            ui = SignUpUiState(
-                name = "Barbara Neanake Ajiesti",
-                email = "barbaraneanake@ugm.ac.id",
-                birthDateMillis = System.currentTimeMillis(),
-                countryCode = "+62",
-                phoneNumber = "81234567890"
-            ),
-            onName = {}, onEmail = {}, onBirthDatePick = {},
-            onCountryCode = {}, onPhone = {},
-            onPassword = {}, onTogglePassword = {},
-            onRegister = {}, onBackToLogin = {}
-        )
-    }
-}
+//@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "SignUp – Light")
+//@Composable
+//private fun PreviewSignUp() {
+//    SmartParkingTheme {
+//        SignUpContent(
+//            ui = SignUpUiState(
+//                name = "Barbara Neanake Ajiesti",
+//                email = "barbaraneanake@ugm.ac.id",
+//                birthDate = System.currentTimeMillis(),
+//                countryCode = "+62",
+//                phoneNumber = "81234567890"
+//            ),
+//            onName = {}, onEmail = {}, onBirthDatePick = {},
+//            onCountryCode = {}, onPhone = {},
+//            onPassword = {}, onTogglePassword = {},
+//            onRegister = {}, onBackToLogin = {}
+//        )
+//    }
+//}

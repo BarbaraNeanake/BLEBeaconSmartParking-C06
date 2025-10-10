@@ -2,6 +2,7 @@ package com.example.smartparking.data.repository
 
 import android.R
 import com.example.smartparking.data.model.User
+import com.example.smartparking.data.remote.LoginRequest
 import com.example.smartparking.data.remote.RetrofitClient
 import retrofit2.Response
 
@@ -10,7 +11,7 @@ class UserRepository {
         return RetrofitClient.userApi.getUsers()
     }
 
-    suspend fun createUser(user: R.string): Response<User> {
+    suspend fun createUser(user: User): Response<User> {
         return RetrofitClient.userApi.createUser(user)
     }
 
@@ -21,5 +22,11 @@ class UserRepository {
     suspend fun getUserById(id:Int): Response<User> {
         return RetrofitClient.userApi.getUserById(id)
     }
+
+    suspend fun login(email: String, password: String): Response<User> {
+        val request = LoginRequest(email, password)
+        return RetrofitClient.userApi.login(request)
+    }
+
 
 }

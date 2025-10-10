@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.androidx.navigation.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Retrofit & OkHttp
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
@@ -87,6 +88,7 @@ dependencies {
     // --- Lifecycle Compose (viewModel() & collectAsStateWithLifecycle) ---
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
 
     // --- Test ---
     testImplementation(libs.junit)

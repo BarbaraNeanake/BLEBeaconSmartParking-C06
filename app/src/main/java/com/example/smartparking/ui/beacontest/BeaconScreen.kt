@@ -16,25 +16,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun BeaconScreen(viewModel: BeaconViewModel = viewModel()) {
-
     val context = LocalContext.current
     val beacons by viewModel.beacons.collectAsState()
     val detectedSlot by viewModel.detectedSlot.collectAsState()
-    val assignResult by viewModel.assignResult.collectAsState() // <- observe hasil assign
+    val assignResult by viewModel.assignResult.collectAsState()
 
-    // Launcher untuk request permission
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val allGranted = permissions.all { it.value }
-        if (allGranted) {
-            viewModel.startScan()
-        } else {
-            Toast.makeText(context, "Permission required to scan", Toast.LENGTH_SHORT).show()
-        }
+    val permissionLauncher = rememberPermissionLauncher {
+        viewModel.startScan()
     }
 
-    // Kalau ada update hasil assign, tampilkan dengan Toast
+    // Tampilkan Toast saat ada hasil assign baru
     LaunchedEffect(assignResult) {
         if (assignResult.isNotEmpty()) {
             Toast.makeText(context, assignResult, Toast.LENGTH_SHORT).show()
@@ -46,24 +37,10 @@ fun BeaconScreen(viewModel: BeaconViewModel = viewModel()) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                launcher.launch(
-                    arrayOf(
-                        Manifest.permission.BLUETOOTH_SCAN,
-                        Manifest.permission.BLUETOOTH_CONNECT,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    )
-                )
-            }) {
-                Text("Start Scanning")
-            }
-
-            Button(onClick = { viewModel.stopScan() }) {
-                Text("Stop")
-            }
-        }
+        ControlButtons(
+            onStart = { permissionLauncher.launchPermissions() },
+            onStop = { viewModel.stopScan() }
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -74,30 +51,72 @@ fun BeaconScreen(viewModel: BeaconViewModel = viewModel()) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Tombol untuk assign slot ke user (contoh userId = 1, role = "customer")
-        Button(
-            onClick = { viewModel.assignSlot(userId = 2, userRole = "Dosen") }
-        ) {
-            Text("Assign Slot")
-        }
+        AssignButton { viewModel.assignSlot(userId = 2, userRole = "Dosen") }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(beacons) { beacon ->
-                Card(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Name: ${beacon.name}")
-                        Text("Address: ${beacon.address}")
-                        Text("RSSI Samples: ${beacon.rssiSamples}")
-                    }
-                }
-            }
+        BeaconList(beacons)
+    }
+}
+
+@Composable
+private fun ControlButtons(onStart: () -> Unit, onStop: () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(onClick = onStart) { Text("Start Scanning") }
+        Button(onClick = onStop) { Text("Stop") }
+    }
+}
+
+@Composable
+private fun AssignButton(onAssign: () -> Unit) {
+    Button(onClick = onAssign) {
+        Text("Assign Slot")
+    }
+}
+
+@Composable
+private fun BeaconList(beacons: List<BeaconData>) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(beacons) { beacon ->
+            BeaconItem(beacon)
         }
     }
+}
+
+@Composable
+private fun BeaconItem(beacon: BeaconData) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Name: ${beacon.name}")
+            Text("Address: ${beacon.address}")
+            Text("RSSI Samples: ${beacon.rssiSamples}")
+        }
+    }
+}
+
+// Helper untuk permission
+@Composable
+private fun rememberPermissionLauncher(onAllGranted: () -> Unit): PermissionLauncher {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions.all { it.value }) {
+            onAllGranted()
+        } else {
+            Toast.makeText(context, "Permission required to scan", Toast.LENGTH_SHORT).show()
+        }
+    }
+    return PermissionLauncher { launcher.launch(arrayOf(
+        Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.BLUETOOTH_CONNECT,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    )) }
+}
+
+class PermissionLauncher(private val launchAction: () -> Unit) {
+    fun launchPermissions() = launchAction()
 }

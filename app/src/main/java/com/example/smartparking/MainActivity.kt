@@ -18,21 +18,29 @@ import com.example.smartparking.data.repository.ParkingRepository
 import com.example.smartparking.ui.beacontest.BeaconScreen
 import com.example.smartparking.ui.beacontest.BeaconViewModel
 import com.example.smartparking.ui.beacontest.BeaconViewModelFactory
+import com.example.smartparking.ui.historypage.HistoryPage
 import com.example.smartparking.ui.home.HomeScreen
 //import com.example.smartparking.ui.home.HomeScreenPreview
 import com.example.smartparking.ui.home.HomeViewModel
-import com.example.smartparking.ui.login.LoginScreen
-import com.example.smartparking.ui.login.LoginViewModel
+//import com.example.smartparking.ui.login.LoginScreen
+//import com.example.smartparking.ui.login.LoginViewModel
 import com.example.smartparking.ui.theme.SmartParkingTheme
 import com.example.smartparking.ui.home.HomeScreen
+import com.example.smartparking.ui.homepage.HomePage
+import com.example.smartparking.ui.informationpage.InformationPage
+import com.example.smartparking.ui.landingpage.LandingPage
+import com.example.smartparking.ui.liveparkingpage.LiveParkingPage
+import com.example.smartparking.ui.loginpage.LoginPage
+import com.example.smartparking.ui.logoutpage.LogoutPage
 import com.example.smartparking.ui.navigation.NavGraph
+import com.example.smartparking.ui.signuppage.SignUpPage
 
 
 class MainActivity : ComponentActivity() {
 
     // Attach ViewModel to the activity
     private val homeViewModel: HomeViewModel by viewModels()
-    private val loginViewModel: LoginViewModel by viewModels()
+//    private val loginViewModel: LoginViewModel by viewModels()
     private val beaconViewModel: BeaconViewModel by viewModels {
         BeaconViewModelFactory(ParkingRepository(RetrofitClient.parkingApi))
     }
@@ -43,14 +51,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             SmartParkingTheme {
                 val state by homeViewModel.uiState.collectAsState()
-                NavGraph()
+//                NavGraph()
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    HomeScreen(
-                        state = state,
-                        onLogoutClick = { /* TODO */ },
-                        modifier = Modifier.padding(innerPadding)
-                    )
+//                    HomeScreen(
+//                        state = state,
+//                        onLogoutClick = { /* TODO */ },
+//                        modifier = Modifier.padding(innerPadding)
+//                    )
+
+                    SignUpPage()
                 }
 
             }

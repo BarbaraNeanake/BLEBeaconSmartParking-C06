@@ -7,7 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -28,9 +29,6 @@ import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 
-/**
- * Entry: pakai ViewModel + navigate ketika login sukses.
- */
 @Composable
 fun LoginPage(
     vm: LoginViewModel = viewModel(),
@@ -38,10 +36,12 @@ fun LoginPage(
     onSignUpClick: () -> Unit = {},
     onForgotPasswordClick: () -> Unit = {}
 ) {
-    val ui by vm.uiState.collectAsStateWithLifecycle()
+    val ui = vm.uiState.collectAsStateWithLifecycle().value
 
+    // Jika login sukses, navigate
     LaunchedEffect(ui.isLoggedIn) {
         if (ui.isLoggedIn) onLoginSuccess()
+
     }
 
     LoginContent(
@@ -51,16 +51,11 @@ fun LoginPage(
         onTogglePassword = vm::togglePasswordVisibility,
         onRememberMeChange = vm::onRememberMeChanged,
         onLoginClick = vm::login,
-        onGoogleClick = vm::loginWithGoogle,
-        onFacebookClick = vm::loginWithFacebook,
         onSignUpClick = onSignUpClick,
         onForgotPasswordClick = onForgotPasswordClick
     )
 }
 
-/**
- * Pure UI (stateless) → aman untuk Preview.
- */
 @Composable
 private fun LoginContent(
     ui: LoginUiState,
@@ -69,20 +64,16 @@ private fun LoginContent(
     onTogglePassword: () -> Unit,
     onRememberMeChange: (Boolean) -> Unit,
     onLoginClick: () -> Unit,
-    onGoogleClick: () -> Unit,
-    onFacebookClick: () -> Unit,
     onSignUpClick: () -> Unit,
     onForgotPasswordClick: () -> Unit
 ) {
-    val gradient = remember {
-        Brush.verticalGradient(
-            listOf(
-                GradientTop.copy(alpha = 0.9f),
-                Color.White,
-                GradientBottom.copy(alpha = 0.9f)
-            )
+    val gradient = Brush.verticalGradient(
+        listOf(
+            GradientTop.copy(alpha = 0.9f),
+            Color.White,
+            GradientBottom.copy(alpha = 0.9f)
         )
-    }
+    )
 
     Box(
         modifier = Modifier
@@ -207,56 +198,28 @@ private fun LoginContent(
                     }
                 }
 
-                if (ui.errorMessage != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = ui.errorMessage!!,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-
-                // divider "Or"
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    HorizontalDivider(Modifier.weight(1f))
-                    Text("  Or  ", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                    HorizontalDivider(Modifier.weight(1f))
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                OutlinedButton(
-                    onClick = onGoogleClick,
-                    enabled = !ui.loading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Text("Continue with Google")
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = onFacebookClick,
-                    enabled = !ui.loading,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Text("Continue with Facebook")
+                when {
+                    ui.errorMessage != null -> {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = ui.errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    ui.isLoggedIn -> {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "Login berhasil!",
+                            color = Color(0xFF2E7D32),
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
         }
     }
 }
-
-/* ======= PREVIEWS (tidak butuh ViewModel) ======= */
 
 @Preview(
     showBackground = true,
@@ -280,8 +243,6 @@ private fun PreviewLoginLight() {
             onTogglePassword = {},
             onRememberMeChange = {},
             onLoginClick = {},
-            onGoogleClick = {},
-            onFacebookClick = {},
             onSignUpClick = {},
             onForgotPasswordClick = {}
         )
