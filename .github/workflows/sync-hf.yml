@@ -32,7 +32,7 @@ jobs:
           git config --global user.name "GitHub Actions"
 
           # Add the Hugging Face Space as a remote
-          git remote add space https://danishritonga:$HF_TOKEN@huggingface.co/spaces/danishritonga/CAPS-backend
+          git remote add space https://danishritonga:$HF_TOKEN@huggingface.co/spaces/danishritonga/SPARK-backend
 
           # Add all files, commit them, and push to the 'main' branch of the remote
           git add .
