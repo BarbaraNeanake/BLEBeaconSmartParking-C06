@@ -9,23 +9,23 @@ import json
 
 @dataclass
 class Config:
-    """Configuration class for the car detection pipeline"""
+    """Configuration class for car detection - Simple PoC"""
     
-    # Model parameters - High precision settings
+    # Model parameters
     num_anchors: int = 5
     num_classes: int = 1
-    img_size: int = 512
-    grid_size: int = 16
+    img_size: int = 416
+    grid_size: int = 13
     
-    # Training parameters - High precision settings
-    num_epochs: int = 80
-    batch_size: int = 4
-    learning_rate: float = 0.0003
+    # Training parameters
+    num_epochs: int = 50
+    batch_size: int = 8
+    learning_rate: float = 0.001
     weight_decay: float = 1e-4
-    patience: int = 20
+    patience: int = 15
     
-    # Loss parameters - High precision settings
-    lambda_coord: float = 15.0
+    # Loss parameters - Simple balanced settings
+    lambda_coord: float = 5.0
     lambda_noobj: float = 0.5
     lambda_obj: float = 1.0
     
@@ -34,9 +34,9 @@ class Config:
     val_split: float = 0.1
     test_split: float = 0.1
     
-    # Inference parameters - High precision settings
-    conf_threshold: float = 0.2
-    nms_threshold: float = 0.25
+    # Inference parameters - Simple PoC settings
+    conf_threshold: float = 0.5
+    nms_threshold: float = 0.45
     
     # Paths
     dataset_root: str = "datasets/COCO_car"
@@ -85,19 +85,13 @@ class Config:
     def print_config(self) -> None:
         """Print current configuration"""
         print("=" * 50)
-        print("SPARK Car Detection - High Precision Configuration")
+        print("SPARK Car Detection - Proof of Concept")
         print("=" * 50)
         print(f"Model: YOLOv2-ResNet50")
         print(f"Image size: {self.img_size}x{self.img_size}")
         print(f"Grid size: {self.grid_size}x{self.grid_size}")
-        print(f"Anchors: {self.num_anchors}")
-        print(f"Classes: {self.num_classes}")
-        print("-" * 30)
-        print(f"Training epochs: {self.num_epochs}")
+        print(f"Epochs: {self.num_epochs}")
         print(f"Batch size: {self.batch_size}")
-        print(f"Learning rate: {self.learning_rate}")
-        print(f"Coordinate loss weight: {self.lambda_coord}")
-        print("-" * 30)
         print(f"Confidence threshold: {self.conf_threshold}")
         print(f"NMS threshold: {self.nms_threshold}")
         print("=" * 50)

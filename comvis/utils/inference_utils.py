@@ -153,12 +153,12 @@ class ModelInference:
                 x_center = (grid_x_valid + xy_pred[:, 0]) / grid_size
                 y_center = (grid_y_valid + xy_pred[:, 1]) / grid_size
                 
-                # Convert from log space
+                # Convert from log space (simple, no fancy clipping)
                 anchor_w = self.anchors[k, 0] / grid_size
                 anchor_h = self.anchors[k, 1] / grid_size
                 
-                w = torch.exp(wh_pred[:, 0]) * anchor_w
-                h = torch.exp(wh_pred[:, 1]) * anchor_h
+                w = torch.exp(torch.clamp(wh_pred[:, 0], -4, 4)) * anchor_w
+                h = torch.exp(torch.clamp(wh_pred[:, 1], -4, 4)) * anchor_h
                 
                 # Convert to corner coordinates
                 x_min = torch.clamp(x_center - w / 2, 0, 1)
@@ -166,7 +166,7 @@ class ModelInference:
                 x_max = torch.clamp(x_center + w / 2, 0, 1)
                 y_max = torch.clamp(y_center + h / 2, 0, 1)
                 
-                # Filter valid boxes
+                # Simple filter: just check boxes are valid
                 valid_mask = (x_max > x_min) & (y_max > y_min)
                 
                 if valid_mask.sum() > 0:
