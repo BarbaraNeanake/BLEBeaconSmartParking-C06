@@ -40,7 +40,7 @@ fun LandingPageScreen(
     brandColor: Color = SparkNavy,
     brandFont: FontFamily = FontFamily.SansSerif,
     subtitleFont: FontFamily = FontFamily.SansSerif,
-    appName: String
+   // appName: String = "Smart Parking FT UGM"
 ) {
     val gradient = remember {
         Brush.verticalGradient(
@@ -111,32 +111,14 @@ fun LandingPageScreen(
 @Composable
 private fun PreviewLandingNavy() {
     SmartParkingTheme(darkTheme = false, dynamicColor = false) {
-        LandingPageScreen(
-            brandName = TODO(),
-            subTitle = TODO(),
-            onNavigateNext = TODO(),
-            modifier = TODO(),
-            brandColor = TODO(),
-            brandFont = TODO(),
-            subtitleFont = TODO(),
-            appName = TODO()
-        )
+        LandingPageScreen(brandColor = SparkNavy)
     }
 }
 
-@Preview(name = "Landing – Black", uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
+@Preview(name = "Landing – Black", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
 @Composable
 private fun PreviewLandingBlack() {
-    SmartParkingTheme(darkTheme = false, dynamicColor = false) {
-        LandingPageScreen(
-            brandColor = SparkBlack,
-            brandName = TODO(),
-            subTitle = TODO(),
-            onNavigateNext = TODO(),
-            modifier = TODO(),
-            brandFont = TODO(),
-            subtitleFont = TODO(),
-            appName = TODO(),
-        )
+    SmartParkingTheme(darkTheme = true, dynamicColor = false) {
+        LandingPageScreen(brandColor = SparkBlack)
     }
 }

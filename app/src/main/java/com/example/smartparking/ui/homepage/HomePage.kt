@@ -7,6 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,7 +59,10 @@ private val parkingLocations: List<ParkingLocation> = listOf(
 
 // ---------- UI ----------
 @Composable
-fun HomePage(vm: HomePageViewModel = viewModel()) {
+fun HomePage(
+    vm: HomePageViewModel = viewModel(),
+    onMenuClick: () -> Unit = {}        // <<< tambah: callback hamburger
+) {
     // ambil state dari VM (delegate perlu import getValue)
     val parkingStatus by vm.parkingStatus
     LaunchedEffect(Unit) { vm.fetchParkingStatus() }
@@ -80,6 +85,19 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        // ===== Hamburger di kiri atas =====
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onMenuClick) {
+                    Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                }
+                Spacer(Modifier.width(8.dp))
+            }
+        }
+
         // Header
         item {
             Column(
@@ -243,4 +261,3 @@ private fun PreviewHomePage() {
         HomePage()
     }
 }
-
