@@ -301,10 +301,10 @@ train_pipeline(config, device, resume=False)
 # Run this cell to test your trained model
 inference_pipeline(config, device)
 
-#%% Run Full Pipeline
+#%% Run Fine
 # Run this cell to train and then test your model
 # full_pipeline(config, device)
 
 #%% Compute Custom Anchors
 # Run this cell to recompute anchors from your dataset
-# compute_anchors(config, force_recompute=True)
+# compute_anchors(config, force_recompute=True)ull Pipel
