@@ -176,9 +176,9 @@ class CIoUYOLOLoss(nn.Module):
                         
                         # Convert predictions to corner format
                         pred_corners = self._convert_to_corner_format(
-                            pred_xy_obj.unsqueeze(-1), pred_wh_obj.unsqueeze(-1),
+                            pred_xy_obj, pred_wh_obj,
                             grid_x_obj, grid_y_obj, k, grid_size
-                        ).squeeze(-2)
+                        )
                         
                         # Convert targets to corner format
                         target_x_center = (grid_x_obj + target_xy_obj[:, 0]) / grid_size
@@ -217,7 +217,7 @@ class CIoUYOLOLoss(nn.Module):
             noobj_loss = self.bce_loss(noobj_pred, noobj_target).sum() / noobj_pred.numel()
 
         # Class loss
-        if num_classes > 0 and obj_mask.sum() > 0:
+        if num_classes > 0 and obj_mask.sum() > 0 and pred_cls is not None:
             class_pred = pred_cls[obj_mask]
             class_target = torch.ones_like(class_pred)
             if class_pred.numel() > 0:
@@ -234,10 +234,10 @@ class CIoUYOLOLoss(nn.Module):
         # Loss components for monitoring
         loss_components = {
             'total_loss': total_loss.item(),
-            'coord_loss': coord_loss.item(),
+            'coord_loss': coord_loss.item() if torch.is_tensor(coord_loss) else coord_loss,
             'obj_loss': obj_loss.item(),
             'noobj_loss': noobj_loss.item(),
-            'class_loss': class_loss.item()
+            'class_loss': class_loss.item() if torch.is_tensor(class_loss) else class_loss
         }
 
         return total_loss, loss_components

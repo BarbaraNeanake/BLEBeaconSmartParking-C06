@@ -56,3 +56,4 @@ deployment/MQTT/testing.py
 /comvis/test_images
 /comvis/test_results
 /comvis/utils/__pycache__
+/comvis/results
