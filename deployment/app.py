@@ -20,7 +20,7 @@ class AlarmPayload(BaseModel):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://your-username-smart-parking-streamlit.hf.space"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -121,17 +121,17 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
         print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
         return {"status": "error", "message": "Failed to send MQTT message."}
 
-@app.post("/upload")
-async def upload_image(file: UploadFile):
-    if not file.content_type.startswith("image/jpeg"):
-        raise HTTPException(status_code=400, detail="File must be JPEG.")
-    global latest_image
-    latest_image = await file.read()
-    return {"message": "Image received"}
+# @app.post("/upload")
+# async def upload_image(file: UploadFile):
+#     if not file.content_type.startswith("image/jpeg"):
+#         raise HTTPException(status_code=400, detail="File must be JPEG.")
+#     global latest_image
+#     latest_image = await file.read()
+#     return {"message": "Image received"}
 
-@app.get("/image")
-async def get_image():
-    global latest_image
-    if latest_image is None:
-        raise HTTPException(status_code=404, detail="No image found")
-    return Response(content=latest_image, media_type="image/jpeg")
+# @app.get("/image")
+# async def get_image():
+#     global latest_image
+#     if latest_image is None:
+#         raise HTTPException(status_code=404, detail="No image found")
+#     return Response(content=latest_image, media_type="image/jpeg")
