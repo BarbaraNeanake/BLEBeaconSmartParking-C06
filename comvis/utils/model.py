@@ -3,14 +3,14 @@ Model definitions for SPARK car detection pipeline
 """
 import torch
 import torch.nn as nn
-from torchvision.models import resnet50
+from torchvision.models import resnet34
 from typing import Optional
 
 
 class YOLOv2ResNet(nn.Module):
     """
-    YOLOv2-style detection head on ResNet50 backbone
-    Improved architecture for better bounding box precision
+    YOLOv2-style detection head on ResNet34 backbone
+    Lighter architecture optimized for proof-of-concept
     """
     
     def __init__(self, num_anchors: int = 5, num_classes: int = 1, pretrained: bool = True):
@@ -18,31 +18,31 @@ class YOLOv2ResNet(nn.Module):
         self.num_anchors = num_anchors
         self.num_classes = num_classes
         
-        # Load pre-trained ResNet50 backbone
-        self.backbone = resnet50(pretrained=pretrained)
+        # Load pre-trained ResNet34 backbone
+        self.backbone = resnet34(pretrained=pretrained)
         # Remove the final fully connected layer and adaptive pooling
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-2])
         
         # Improved YOLOv2 detection head with feature refinement
         self.conv = nn.Sequential(
-            # First refinement layer
-            nn.Conv2d(2048, 1024, kernel_size=3, padding=1),
-            nn.BatchNorm2d(1024),
+            # First refinement layer (ResNet34 outputs 512 channels, not 2048)
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Dropout2d(0.2),  # Regularization
             
             # Second refinement layer
-            nn.Conv2d(1024, 1024, kernel_size=3, padding=1),
-            nn.BatchNorm2d(1024),
-            nn.LeakyReLU(0.1, inplace=True),
-            
-            # Dimensionality reduction
-            nn.Conv2d(1024, 512, kernel_size=1),
+            nn.Conv2d(512, 512, kernel_size=3, padding=1),
             nn.BatchNorm2d(512),
             nn.LeakyReLU(0.1, inplace=True),
             
+            # Dimensionality reduction
+            nn.Conv2d(512, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.1, inplace=True),
+            
             # Final prediction layer
-            nn.Conv2d(512, num_anchors * (5 + num_classes), kernel_size=1)
+            nn.Conv2d(256, num_anchors * (5 + num_classes), kernel_size=1)
         )
         
         # Initialize weights

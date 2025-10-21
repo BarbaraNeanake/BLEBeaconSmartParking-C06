@@ -87,7 +87,7 @@ class Config:
         print("=" * 50)
         print("SPARK Car Detection - Proof of Concept")
         print("=" * 50)
-        print(f"Model: YOLOv2-ResNet50")
+        print(f"Model: YOLOv2-ResNet34")
         print(f"Image size: {self.img_size}x{self.img_size}")
         print(f"Grid size: {self.grid_size}x{self.grid_size}")
         print(f"Epochs: {self.num_epochs}")
