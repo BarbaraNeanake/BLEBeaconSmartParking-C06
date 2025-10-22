@@ -33,12 +33,15 @@ fun LoginPage(
     vm: LoginViewModel = viewModel(),
     onLoginSuccess: () -> Unit = {},
     onSignUpClick: () -> Unit = {},
-    onForgotPasswordClick: () -> Unit = {}
+    onForgotPasswordClick: () -> Unit = {},
+    /** Jika true, tombol Log In langsung masuk Home tanpa BE/validasi */
+    demoDirectLogin: Boolean = false
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(ui.isLoggedIn) {
-        if (ui.isLoggedIn) onLoginSuccess()
+    // Hanya observe VM kalau TIDAK demo
+    LaunchedEffect(ui.isLoggedIn, demoDirectLogin) {
+        if (!demoDirectLogin && ui.isLoggedIn) onLoginSuccess()
     }
 
     LoginContent(
@@ -47,13 +50,16 @@ fun LoginPage(
         onPasswordChange = vm::onPasswordChanged,
         onTogglePassword = vm::togglePasswordVisibility,
         onRememberMeChange = vm::onRememberMeChanged,
-        onLoginClick = vm::login,
+        onLoginClick = {
+            if (demoDirectLogin) onLoginSuccess() else vm.login()
+        },
         onSignUpClick = onSignUpClick,
-        onForgotPasswordClick = onForgotPasswordClick
+        onForgotPasswordClick = onForgotPasswordClick,
+        showError = !demoDirectLogin
     )
 }
 
-/** Pure UI (stateless) → aman untuk Preview. */
+/** Pure UI (stateless) */
 @Composable
 private fun LoginContent(
     ui: LoginUiState,
@@ -63,16 +69,12 @@ private fun LoginContent(
     onRememberMeChange: (Boolean) -> Unit,
     onLoginClick: () -> Unit,
     onSignUpClick: () -> Unit,
-    onForgotPasswordClick: () -> Unit
+    onForgotPasswordClick: () -> Unit,
+    showError: Boolean = true
 ) {
-    // background: soft gradient (bukan merah)
     val gradient = remember {
         Brush.verticalGradient(
-            listOf(
-                GradientTop.copy(alpha = 0.9f),
-                Color.White,
-                GradientBottom.copy(alpha = 0.9f)
-            )
+            listOf(GradientTop.copy(0.9f), Color.White, GradientBottom.copy(0.9f))
         )
     }
 
@@ -82,12 +84,11 @@ private fun LoginContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // ===== Header (logo + SPARK + subtitle), diturunin sedikit =====
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(top = 32.dp),        // turunin posisinya
+                .padding(top = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
@@ -98,33 +99,30 @@ private fun LoginContent(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "SPARK",
+                "SPARK",
                 style = MaterialTheme.typography.headlineLarge.copy(
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontSize = 28.sp, fontWeight = FontWeight.ExtraBold
                 ),
-                color = Color(0xFF0A2342),          // navy
+                color = Color(0xFF0A2342),
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "Smart Parking System",
+                "Smart Parking System",
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 18.sp, fontWeight = FontWeight.SemiBold
                 ),
                 textAlign = TextAlign.Center
             )
         }
 
-        // ===== Card form =====
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.Center),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
+            elevation = CardDefaults.cardElevation(10.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -132,10 +130,9 @@ private fun LoginContent(
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    "Login",
-                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold)
-                )
+                Text("Login", style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.Bold
+                ))
 
                 Spacer(Modifier.height(16.dp))
 
@@ -154,7 +151,8 @@ private fun LoginContent(
                     onValueChange = onPasswordChange,
                     label = { Text("Password") },
                     singleLine = true,
-                    visualTransformation = if (ui.passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = if (ui.passwordVisible)
+                        VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         Text(
                             if (ui.passwordVisible) "Hide" else "Show",
@@ -179,13 +177,12 @@ private fun LoginContent(
                     Text(
                         "Forgot Password ?",
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onForgotPasswordClick() } // → EditPassPage
+                        modifier = Modifier.clickable { onForgotPasswordClick() }
                     )
                 }
 
                 Spacer(Modifier.height(12.dp))
 
-                // Primary action
                 Button(
                     onClick = onLoginClick,
                     enabled = !ui.loading,
@@ -204,7 +201,6 @@ private fun LoginContent(
                     }
                 }
 
-                // Tonjolkan Sign Up (secondary full-width)
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onSignUpClick,
@@ -212,14 +208,12 @@ private fun LoginContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                ) {
-                    Text("Sign Up")
-                }
+                ) { Text("Sign Up") }
 
-                if (ui.errorMessage != null) {
+                if (showError && ui.errorMessage != null) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = ui.errorMessage!!,
+                        ui.errorMessage,
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center
                     )
@@ -229,24 +223,12 @@ private fun LoginContent(
     }
 }
 
-/* ======= PREVIEWS ======= */
-@Preview(
-    showBackground = true,
-    name = "Login – Light",
-    uiMode = Configuration.UI_MODE_NIGHT_NO
-)
+@Preview(showBackground = true, name = "Login – Light", uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
 private fun PreviewLoginLight() {
     SmartParkingTheme {
         LoginContent(
-            ui = LoginUiState(
-                email = "barbara@ugm.ac.id",
-                password = "******",
-                passwordVisible = false,
-                rememberMe = true,
-                loading = false,
-                errorMessage = null
-            ),
+            ui = LoginUiState(),
             onEmailChange = {},
             onPasswordChange = {},
             onTogglePassword = {},
