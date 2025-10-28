@@ -1,22 +1,22 @@
-# Start with a smaller base image
-FROM python:3.9-slim
+FROM python:3.10-slim
 
-# Create a non-root user and set up the working directory
-RUN useradd -m -u 1000 user
-USER user
+# Install basic build tools
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Set PATH environment variable
-ENV PATH="/home/user/.local/bin:${PATH}"
+# Copy and install requirements
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-# 1. Copy only the requirements file first
-COPY --chown=user ./requirements.txt .
+# Copy source code
+COPY . .
 
-# 2. Install dependencies
-RUN pip install --no-cache-dir --upgrade -r requirements.txt
+# Build Cython extensions
+RUN python setup_cython.py build_ext --inplace
 
-# 3. Copy the rest of the application code
-COPY --chown=user . .
+EXPOSE 7860
 
-# Command to run the application
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]

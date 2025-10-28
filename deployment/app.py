@@ -1,16 +1,29 @@
-from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi import FastAPI, UploadFile, HTTPException, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 import paho.mqtt.client as mqtt
 import ssl
 import time
 import os
-from typing import List, Dict
+import io
+import logging
+from typing import List, Dict, Optional
+import numpy as np
+import cv2
+from PIL import Image
 from pydantic import BaseModel
 
+# Import SPARK inference engine
+from spark_engine import create_engine
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title = "SPARK Backend"
+    title="SPARK Backend - Car Detection & IoT",
+    description="Combined car detection API and IoT sensor backend",
+    version="1.0.0"
 )
 
 latest_image: bytes = None
@@ -32,6 +45,13 @@ MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 MQTT_BROKER_PORT = 8883
 SENSOR_DATA_TOPIC = "#"
+
+# Model configuration (assumes .npz format - no torch dependency)
+MODEL_PATH = os.environ.get("MODEL_PATH", "models/best_model.npz")
+CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.json")
+
+# Global inference engine
+inference_engine = None
 
 # In-memory list to store the last 20 messages
 g_messages: List[Dict] = []
@@ -78,12 +98,24 @@ client.tls_set(tls_version=ssl.PROTOCOL_TLS)
 
 @app.on_event("startup")
 async def startup_event():
-    """Connect to MQTT when the app starts."""
+    """Connect to MQTT and initialize inference engine when the app starts."""
+    global inference_engine
+    
+    # Initialize MQTT
     if not all([MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD]):
-        print("❌ MQTT credentials not set in Space secrets!")
-        return
-    client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
-    client.loop_start()
+        logger.warning("❌ MQTT credentials not set in Space secrets!")
+    else:
+        client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
+        client.loop_start()
+        logger.info("✅ MQTT connected")
+    
+    inference_engine = create_engine(
+        model_path=MODEL_PATH,
+        config_path=CONFIG_PATH,
+        input_size=416,
+        backend="resnet34"
+    )
+    logger.info(f"✅ SPARK inference engine initialized with model: {MODEL_PATH}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -94,7 +126,72 @@ async def shutdown_event():
 # --- API Endpoints ---
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "Backend is running."}
+    return {
+        "status": "ok", 
+        "message": "SPARK Backend - Car Detection & IoT",
+        "version": "1.0.0",
+        "features": {
+            "car_detection": "/detect - POST image for car detection",
+            "sensor_logs": "/logs - GET latest sensor messages",
+            "alarm_trigger": "/pelanggaran - POST to trigger sensor alarm",
+            "health_check": "/health - API health status"
+        }
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    mqtt_status = "connected" if client.is_connected() else "disconnected"
+    
+    return {
+        "status": "healthy", 
+        "message": "API is running",
+        "mqtt_status": mqtt_status,
+        "model_loaded": True,
+        "model_path": MODEL_PATH,
+        "recent_messages": len(g_messages)
+    }
+
+@app.post("/detect")
+async def detect_cars(file: UploadFile = File(...)):
+    """
+    Car detection endpoint using SPARK inference engine
+    """
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        # Read and convert image
+        image_bytes = await file.read()
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Convert to BGR format for OpenCV (model expects BGR)
+        image_array = np.array(image, dtype=np.uint8)
+        image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+        
+        # Run inference with SPARK engine
+        start_time = time.time()
+        detections = inference_engine.predict(image_bgr)
+        stats = inference_engine.get_stats()
+        
+        result = {
+            "success": True,
+            "detections": detections,
+            "inference_time": stats.get("avg_time", 0.0),
+            "image_shape": list(image_array.shape),
+            "num_detections": len(detections)
+        }
+        
+        logger.info(f"Detected {len(detections)} cars in {stats.get('avg_time', 0.0):.3f}s")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Car detection failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
 
 @app.get("/logs", summary="Get the latest sensor messages")
 async def get_logs() -> List[Dict]:
@@ -121,17 +218,6 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
         print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
         return {"status": "error", "message": "Failed to send MQTT message."}
 
-# @app.post("/upload")
-# async def upload_image(file: UploadFile):
-#     if not file.content_type.startswith("image/jpeg"):
-#         raise HTTPException(status_code=400, detail="File must be JPEG.")
-#     global latest_image
-#     latest_image = await file.read()
-#     return {"message": "Image received"}
-
-# @app.get("/image")
-# async def get_image():
-#     global latest_image
-#     if latest_image is None:
-#         raise HTTPException(status_code=404, detail="No image found")
-#     return Response(content=latest_image, media_type="image/jpeg")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
