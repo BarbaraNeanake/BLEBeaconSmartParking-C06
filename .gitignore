@@ -50,6 +50,8 @@ gradle-wrapper.jar
 # deployment
 /deployment/spark_engine/__pycache__/
 deployment/models/
+deployment/test_engine.py
+
 
 # comvis
 /comvis/datasets
