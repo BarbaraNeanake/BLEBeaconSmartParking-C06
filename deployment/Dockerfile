@@ -12,6 +12,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Create models cache directory with proper permissions
+RUN mkdir -p /app/models_cache && chmod 777 /app/models_cache
+
 # Copy and install requirements
 COPY requirements.txt .
 RUN pip install -r requirements.txt
