@@ -67,33 +67,35 @@ class ResBlock:
     def load_weights(self, state_dict: Dict, prefix: str = ""):
         """Load weights from PyTorch state dict"""
         def get_key(key_name):
-            """Try to find key with or without backbone prefix"""
-            if f"{prefix}{key_name}" in state_dict:
-                return state_dict[f"{prefix}{key_name}"]
-            elif f"{prefix}backbone.{key_name}" in state_dict:
-                return state_dict[f"{prefix}backbone.{key_name}"]
-            else:
-                raise KeyError(f"Key '{key_name}' not found in state_dict")
+            """Try to find key in state_dict"""
+            full_key = f"{prefix}{key_name}"
+            if full_key in state_dict:
+                value = state_dict[full_key]
+                # Convert torch tensor to numpy if needed
+                if hasattr(value, 'numpy'):
+                    return value.numpy()
+                return value
+            raise KeyError(f"Key '{full_key}' not found in state_dict")
         
         try:
-            self.conv1_weight = get_key("conv1.weight").numpy()
-            self.bn1_weight = get_key("bn1.weight").numpy()
-            self.bn1_bias = get_key("bn1.bias").numpy()
-            self.bn1_mean = get_key("bn1.running_mean").numpy()
-            self.bn1_var = get_key("bn1.running_var").numpy()
+            self.conv1_weight = get_key("conv1.weight")
+            self.bn1_weight = get_key("bn1.weight")
+            self.bn1_bias = get_key("bn1.bias")
+            self.bn1_mean = get_key("bn1.running_mean")
+            self.bn1_var = get_key("bn1.running_var")
             
-            self.conv2_weight = get_key("conv2.weight").numpy()
-            self.bn2_weight = get_key("bn2.weight").numpy()
-            self.bn2_bias = get_key("bn2.bias").numpy()
-            self.bn2_mean = get_key("bn2.running_mean").numpy()
-            self.bn2_var = get_key("bn2.running_var").numpy()
+            self.conv2_weight = get_key("conv2.weight")
+            self.bn2_weight = get_key("bn2.weight")
+            self.bn2_bias = get_key("bn2.bias")
+            self.bn2_mean = get_key("bn2.running_mean")
+            self.bn2_var = get_key("bn2.running_var")
             
             if self.downsample_weight is not None:
-                self.downsample_weight = get_key("downsample.0.weight").numpy()
-                self.downsample_bn_weight = get_key("downsample.1.weight").numpy()
-                self.downsample_bn_bias = get_key("downsample.1.bias").numpy()
-                self.downsample_bn_mean = get_key("downsample.1.running_mean").numpy()
-                self.downsample_bn_var = get_key("downsample.1.running_var").numpy()
+                self.downsample_weight = get_key("downsample.0.weight")
+                self.downsample_bn_weight = get_key("downsample.1.weight")
+                self.downsample_bn_bias = get_key("downsample.1.bias")
+                self.downsample_bn_mean = get_key("downsample.1.running_mean")
+                self.downsample_bn_var = get_key("downsample.1.running_var")
         except KeyError as e:
             print(f"Warning: Could not load weight {e}")
 
@@ -149,33 +151,36 @@ class ResNetBackbone:
     def load_weights(self, state_dict: Dict):
         """Load weights from PyTorch state dict"""
         def get_key(key_name):
-            """Try to find key with or without prefix"""
+            """Get key and convert to numpy if needed"""
             if key_name in state_dict:
-                return state_dict[key_name]
-            backbone_key = f"backbone.{key_name}"
-            if backbone_key in state_dict:
-                return state_dict[backbone_key]
+                value = state_dict[key_name]
+                if hasattr(value, 'numpy'):
+                    return value.numpy()
+                return value
             raise KeyError(f"Key '{key_name}' not found")
         
         try:
-            # Load initial conv
-            self.conv1_weight = get_key("conv1.weight").numpy()
-            self.bn1_weight = get_key("bn1.weight").numpy()
-            self.bn1_bias = get_key("bn1.bias").numpy()
-            self.bn1_mean = get_key("bn1.running_mean").numpy()
-            self.bn1_var = get_key("bn1.running_var").numpy()
+            # Load initial conv (backbone.0 and backbone.1)
+            self.conv1_weight = get_key("backbone.0.weight")
+            self.bn1_weight = get_key("backbone.1.weight")
+            self.bn1_bias = get_key("backbone.1.bias")
+            self.bn1_mean = get_key("backbone.1.running_mean")
+            self.bn1_var = get_key("backbone.1.running_var")
             
             # Load residual layers
+            # backbone.4 = layer1, backbone.5 = layer2, backbone.6 = layer3, backbone.7 = layer4
             for i, block in enumerate(self.layer1_blocks):
-                block.load_weights(state_dict, f"layer1.{i}.")
+                block.load_weights(state_dict, f"backbone.4.{i}.")
             for i, block in enumerate(self.layer2_blocks):
-                block.load_weights(state_dict, f"layer2.{i}.")
+                block.load_weights(state_dict, f"backbone.5.{i}.")
             for i, block in enumerate(self.layer3_blocks):
-                block.load_weights(state_dict, f"layer3.{i}.")
+                block.load_weights(state_dict, f"backbone.6.{i}.")
             for i, block in enumerate(self.layer4_blocks):
-                block.load_weights(state_dict, f"layer4.{i}.")
+                block.load_weights(state_dict, f"backbone.7.{i}.")
+                
+            print("✓ Backbone weights loaded successfully")
         except Exception as e:
-            print(f"Warning during weight loading: {e}")
+            print(f"Warning during backbone weight loading: {e}")
 
 
 class YOLODetectionHead:
@@ -222,7 +227,33 @@ class YOLODetectionHead:
     
     def load_weights(self, state_dict: Dict):
         """Load detection head weights"""
-        pass  # Implement as needed
+        def get_key(key_name):
+            """Get key and convert to numpy if needed"""
+            if key_name in state_dict:
+                value = state_dict[key_name]
+                if hasattr(value, 'numpy'):
+                    return value.numpy()
+                return value
+            raise KeyError(f"Key '{key_name}' not found")
+        
+        try:
+            # conv.0 and conv.1 = first conv layer + bn
+            self.conv1_weight = get_key("conv.0.weight")
+            self.conv1_bn_weight = get_key("conv.1.weight")
+            self.conv1_bn_bias = get_key("conv.1.bias")
+            
+            # conv.4 and conv.5 = second conv layer + bn
+            self.conv2_weight = get_key("conv.4.weight")
+            self.conv2_bn_weight = get_key("conv.5.weight")
+            self.conv2_bn_bias = get_key("conv.5.bias")
+            
+            # conv.10 = final prediction layer
+            self.conv_pred_weight = get_key("conv.10.weight")
+            self.conv_pred_bias = get_key("conv.10.bias")
+            
+            print("✓ Detection head weights loaded successfully")
+        except KeyError as e:
+            print(f"Warning: Could not load detection head weight {e}")
 
 
 class YOLOv2ResNet:
@@ -241,20 +272,12 @@ class YOLOv2ResNet:
     
     def load_weights(self, state_dict: Dict, anchors: np.ndarray = None):
         """Load complete model weights"""
-        # Categorize weights
-        backbone_weights = {}
-        head_weights = {}
+        print(f"Loading weights from checkpoint with {len(state_dict)} keys")
         
-        for key, value in state_dict.items():
-            if any(x in key for x in ["layer1", "layer2", "layer3", "layer4", "conv1", "bn1"]):
-                backbone_weights[key.replace("backbone.", "")] = value
-            elif "conv." in key:
-                head_weights[key] = value
+        # Load backbone weights (all keys starting with 'backbone.')
+        self.backbone.load_weights(state_dict)
         
-        # Load backbone
-        if backbone_weights:
-            self.backbone.load_weights(backbone_weights)
+        # Load detection head weights (all keys starting with 'conv.')
+        self.detection_head.load_weights(state_dict)
         
-        # Load detection head
-        if head_weights:
-            self.detection_head.load_weights(head_weights)
+        print("✓ Model weights loaded successfully")

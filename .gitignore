@@ -46,6 +46,9 @@ gradle-wrapper.jar
 .idea/workspace.xml
 .idea/gradle.xml
 .idea/navEditor.xml
+
+# deployment
+/deployment/spark_engine/__pycache__/
 deployment/models/
 
 # comvis
