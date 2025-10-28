@@ -12,8 +12,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Create models cache directory with proper permissions
-RUN mkdir -p /app/models_cache && chmod 777 /app/models_cache
+# Create cache directories with proper permissions
+RUN mkdir -p /app/models_cache /app/hf_cache && chmod 777 /app/models_cache /app/hf_cache
+
+# Set Hugging Face cache directory
+ENV HF_HOME=/app/hf_cache
 
 # Copy and install requirements
 COPY requirements.txt .
