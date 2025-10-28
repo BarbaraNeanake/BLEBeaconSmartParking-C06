@@ -46,7 +46,7 @@ gradle-wrapper.jar
 .idea/workspace.xml
 .idea/gradle.xml
 .idea/navEditor.xml
-deployment/MQTT/testing.py
+deployment/models/
 
 # comvis
 /comvis/datasets
