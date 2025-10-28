@@ -215,12 +215,23 @@ async def detect_cars(file: UploadFile = File(...)):
         detections = inference_engine.predict(image_bgr)
         stats = inference_engine.get_stats()
         
+        # Convert NumPy types to native Python types for JSON serialization
+        detections_serializable = []
+        for det in detections:
+            det_dict = {
+                "bbox": [float(x) for x in det.get('bbox', [])],
+                "confidence": float(det.get('confidence', 0)),
+                "class": int(det.get('class', 0)),
+                "class_name": str(det.get('class_name', 'unknown'))
+            }
+            detections_serializable.append(det_dict)
+        
         result = {
             "success": True,
-            "detections": detections,
-            "inference_time": stats.get("avg_time", 0.0),
-            "image_shape": list(image_array.shape),
-            "num_detections": len(detections)
+            "detections": detections_serializable,
+            "inference_time": float(stats.get("avg_time", 0.0)),
+            "image_shape": [int(x) for x in image_array.shape],
+            "num_detections": len(detections_serializable)
         }
         
         logger.info(f"Detected {len(detections)} cars in {stats.get('avg_time', 0.0):.3f}s")
