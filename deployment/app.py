@@ -4,17 +4,22 @@ import ssl
 import time
 import os
 from typing import List, Dict
+from pydantic import BaseModel
+
 
 app = FastAPI(
     title = "CAPS Backend"
 )
+
+class AlarmPayload(BaseModel):
+    sensor_id: str
 
 # --- Configuration (from Hugging Face Secrets) ---
 MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST")
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 MQTT_BROKER_PORT = 8883
-SENSOR_DATA_TOPIC = "sensors/data/+"
+SENSOR_DATA_TOPIC = "#"
 
 # In-memory list to store the last 20 messages
 g_messages: List[Dict] = []
@@ -83,3 +88,23 @@ async def root():
 async def get_logs() -> List[Dict]:
     """Returns the most recent messages stored in memory."""
     return g_messages
+
+@app.post("/pelanggaran")
+async def trigger_buzzer(sensor_payload: AlarmPayload):
+    """
+    Endpoint to trigger a buzzer on a specific sensor device.
+    Publishes a message to the corresponding MQTT topic.
+    """
+    sensor_id = sensor_payload.sensor_id
+    alarm_topic = f"violation/{sensor_id}"
+    payload_to_send = "True"
+
+    result = client.publish(alarm_topic, payload_to_send)
+    
+    # Use the globally defined MQTT client to publish the message
+    if result.rc == mqtt.MQTT_ERR_SUCCESS:
+        print(f"⬆️  [Backend] Alarm signal sent to topic: {alarm_topic}")
+        return {"status": "success", "topic": alarm_topic, "message": f"Alarm signal sent to sensor {sensor_id}."}
+    else:
+        print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
+        return {"status": "error", "message": "Failed to send MQTT message."}
