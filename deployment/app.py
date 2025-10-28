@@ -12,6 +12,7 @@ import numpy as np
 import cv2
 from PIL import Image
 from pydantic import BaseModel
+from huggingface_hub import hf_hub_download
 
 # Import SPARK inference engine
 from spark_engine import create_engine
@@ -39,16 +40,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Configuration (from Hugging Face Secrets) ---
+# --- Configuration (from environment variables or Hugging Face Secrets) ---
 MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST")
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 MQTT_BROKER_PORT = 8883
 SENSOR_DATA_TOPIC = "#"
 
-# Model configuration (assumes .npz format - no torch dependency)
-MODEL_PATH = os.environ.get("MODEL_PATH", "models/best_model.npz")
-CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.json")
+# Hugging Face Model Configuration
+HF_REPO_ID = os.environ.get("HF_REPO_ID", "danishritonga/SPARK-car-detector")
+HF_MODEL_FILENAME = os.environ.get("HF_MODEL_FILENAME", "best_model.npz")
+HF_CONFIG_FILENAME = os.environ.get("HF_CONFIG_FILENAME", "config.json")
+HF_TOKEN = os.environ.get("HF_TOKEN", None)
+
+# Local cache directory for downloaded models
+MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models_cache")
 
 # Global inference engine
 inference_engine = None
@@ -103,19 +109,51 @@ async def startup_event():
     
     # Initialize MQTT
     if not all([MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD]):
-        logger.warning("❌ MQTT credentials not set in Space secrets!")
+        logger.warning("❌ MQTT credentials not set in environment variables!")
     else:
         client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
         client.loop_start()
         logger.info("✅ MQTT connected")
     
-    inference_engine = create_engine(
-        model_path=MODEL_PATH,
-        config_path=CONFIG_PATH,
-        input_size=416,
-        backend="resnet34"
-    )
-    logger.info(f"✅ SPARK inference engine initialized with model: {MODEL_PATH}")
+    # Download model from Hugging Face
+    try:
+        os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
+        
+        logger.info(f"📥 Downloading model from Hugging Face: {HF_REPO_ID}/{HF_MODEL_FILENAME}")
+        model_path = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename=HF_MODEL_FILENAME,
+            cache_dir=MODEL_CACHE_DIR,
+            token=HF_TOKEN
+        )
+        
+        logger.info(f"📥 Downloading config from Hugging Face: {HF_REPO_ID}/{HF_CONFIG_FILENAME}")
+        config_path = hf_hub_download(
+            repo_id=HF_REPO_ID,
+            filename=HF_CONFIG_FILENAME,
+            cache_dir=MODEL_CACHE_DIR,
+            token=HF_TOKEN
+        )
+        
+        logger.info(f"✅ Model downloaded to: {model_path}")
+        logger.info(f"✅ Config downloaded to: {config_path}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to download model from Hugging Face: {e}")
+        raise
+    
+    # Initialize inference engine with downloaded model
+    try:
+        inference_engine = create_engine(
+            model_path=model_path,
+            config_path=config_path,
+            input_size=416,
+            backend="resnet34"
+        )
+        logger.info(f"✅ SPARK inference engine initialized with model: {model_path}")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize inference engine: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -147,8 +185,8 @@ async def health_check():
         "status": "healthy", 
         "message": "API is running",
         "mqtt_status": mqtt_status,
-        "model_loaded": True,
-        "model_path": MODEL_PATH,
+        "model_loaded": inference_engine is not None,
+        "huggingface_repo": HF_REPO_ID,
         "recent_messages": len(g_messages)
     }
 
