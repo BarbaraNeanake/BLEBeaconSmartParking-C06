@@ -313,7 +313,7 @@ import androidx.room.Room
 import com.example.smartparking.data.network.TokenProvider
 import com.example.smartparking.ui.components.DrawerContent
 import com.example.smartparking.ui.editpasspage.EditPassPage
-import com.example.smartparking.ui.historypage.HistoryPage
+import com.example.smartparking.ui.historypage.HistoryUiState
 import com.example.smartparking.ui.homepage.HomePage
 import com.example.smartparking.ui.informationpage.InformationPage
 import com.example.smartparking.ui.landingpage.LandingPageScreen
@@ -523,7 +523,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     userName = session?.name,
                                     userEmail = session?.email
-                                ) { _ -> HistoryPage() }
+                                ) { _ -> HistoryUiState() }
                             }
                             composable(Screen.Info.route) {
                                 WithDrawer(
