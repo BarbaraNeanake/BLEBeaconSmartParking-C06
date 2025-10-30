@@ -1,16 +1,27 @@
 package com.example.smartparking.data.remote
 
+import com.example.smartparking.data.network.AuthInterceptor
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
-object RetrofitClient{
-    private const val BASE_URL = "http://10.72.43.167:3000"
+object RetrofitProvider {
 
-    val instance: ApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
+    private val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .addInterceptor(AuthInterceptor())
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
             .build()
-            .create(ApiService::class.java)
     }
+
+    val retrofit = Retrofit.Builder()
+        .baseUrl("https://backend-capstone-lovat.vercel.app/") // ganti sesuai server kamu
+        .client(client)
+        .addConverterFactory(GsonConverterFactory.create()) // ✅ pakai GSON
+        .build()
+
+    val userApi: UserApiService by lazy { retrofit.create(UserApiService::class.java) }
+    val parkingApi: ParkingApiService by lazy { retrofit.create(ParkingApiService::class.java) }
 }

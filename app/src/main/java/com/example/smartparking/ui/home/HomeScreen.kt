@@ -11,33 +11,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.smartparking.ui.loginpage.LoginViewModel
 
 @Composable
 fun HomeScreen(
-    viewModel: HomeViewModel,
-    modifier: Modifier = Modifier // <- added
+    vm: LoginViewModel = viewModel() // <- added
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val ui by vm.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(Unit) {
-        viewModel.loadUserById(1)
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(text = "Welcome, ${state.nama}!")
-            Button(onClick = { /* TODO */ }) {
-                Text(text = "Logout")
-            }
-        }
+    Column {
+        Text("Welcome, ${ui.email}")
     }
 }
 
