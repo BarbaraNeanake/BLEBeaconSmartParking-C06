@@ -12,6 +12,8 @@ data class EditPassUiState(
     val email: String = "",
     val newPassword: String = "",
     val confirmPassword: String = "",
+    val showNew: Boolean = false,
+    val showConfirm: Boolean = false,
     val loading: Boolean = false,
     val success: Boolean = false,
     val errorMessage: String? = null
@@ -34,27 +36,39 @@ class EditPassViewModel : ViewModel() {
         it.copy(confirmPassword = v, errorMessage = null)
     }
 
+    fun toggleShowNew() = _ui.update { it.copy(showNew = !it.showNew) }
+    fun toggleShowConfirm() = _ui.update { it.copy(showConfirm = !it.showConfirm) }
+
+    /**
+     * Panggilan utama untuk reset.
+     * Nanti tinggal ganti delay(...) dengan repository:
+     *   repository.resetPassword(email, newPassword)
+     * dan handle hasilnya.
+     */
     fun submitReset() {
         val s = _ui.value
-        // Validasi sederhana
-        if (!s.email.contains("@") || !s.email.contains(".")) {
-            _ui.update { it.copy(errorMessage = "Email tidak valid.") }
-            return
-        }
-        if (s.newPassword.length < 6) {
-            _ui.update { it.copy(errorMessage = "Password minimal 6 karakter.") }
-            return
-        }
-        if (s.newPassword != s.confirmPassword) {
-            _ui.update { it.copy(errorMessage = "Konfirmasi password tidak sama.") }
-            return
-        }
 
-        viewModelScope.launch {
-            _ui.update { it.copy(loading = true, errorMessage = null) }
-            // TODO: panggil repository reset password di sini
-            delay(800)
-            _ui.update { it.copy(loading = false, success = true) }
+        // Validasi ringan dan jelas
+        when {
+            !s.email.contains("@") || !s.email.contains(".") ->
+                _ui.update { it.copy(errorMessage = "Email tidak valid.") }
+
+            s.newPassword.length < 6 ->
+                _ui.update { it.copy(errorMessage = "Password minimal 6 karakter.") }
+
+            s.newPassword != s.confirmPassword ->
+                _ui.update { it.copy(errorMessage = "Konfirmasi password tidak sama.") }
+
+            else -> {
+                viewModelScope.launch {
+                    _ui.update { it.copy(loading = true, errorMessage = null) }
+
+                    // TODO: ganti dengan call ke backend/Firestore/Retrofit
+                    delay(800)
+
+                    _ui.update { it.copy(loading = false, success = true) }
+                }
+            }
         }
     }
 }

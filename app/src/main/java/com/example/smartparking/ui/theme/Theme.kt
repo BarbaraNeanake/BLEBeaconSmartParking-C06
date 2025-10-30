@@ -44,6 +44,8 @@ fun SmartParkingTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
+        // Dynamic color (Android 12+) boleh dipakai untuk mode gelap,
+        // tapi untuk feel landing yang konsisten, kita lock ke palette sendiri saat light.
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> {
             val context = LocalContext.current
             dynamicDarkColorScheme(context)

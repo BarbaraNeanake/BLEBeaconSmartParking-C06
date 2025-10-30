@@ -120,5 +120,5 @@ private fun PreviewLandingNavy() {
 private fun PreviewLandingBlack() {
     SmartParkingTheme(darkTheme = true, dynamicColor = false) {
         LandingPageScreen(brandColor = SparkBlack)
-        }
+    }
 }
