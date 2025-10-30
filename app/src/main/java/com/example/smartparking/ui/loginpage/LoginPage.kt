@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -31,7 +32,7 @@ import com.example.smartparking.ui.theme.SmartParkingTheme
 
 @Composable
 fun LoginPage(
-    vm: LoginViewModel = viewModel(),
+    vm: LoginViewModel,
     onLoginSuccess: () -> Unit = {},
     onSignUpClick: () -> Unit = {},
     onForgotPasswordClick: () -> Unit = {}
@@ -76,7 +77,7 @@ private fun LoginContent(
                 GradientBottom.copy(alpha = 0.9f)
             )
         )
-    )
+    }
 
     Box(
         modifier = Modifier
@@ -175,8 +176,6 @@ private fun LoginContent(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Checkbox(checked = ui.rememberMe, onCheckedChange = onRememberMeChange)
-                    Text("Remember me")
                     Spacer(Modifier.weight(1f))
                     Text(
                         "Forgot Password ?",
@@ -189,8 +188,10 @@ private fun LoginContent(
 
                 // Primary action
                 Button(
-                    onClick = onLoginClick,
-                    enabled = !ui.loading,
+                    onClick = {
+                        onLoginClick()
+                              },
+                    enabled = ui.canSubmit && !ui.loading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)

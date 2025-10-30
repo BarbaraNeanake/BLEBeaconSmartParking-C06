@@ -15,7 +15,9 @@ fun AppScaffold(
     selectedRoute: String?,
     onNavigate: (String) -> Unit,
     topBarTitle: String = "",
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
+    userName: String?,
+    userEmail:String?
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -28,7 +30,9 @@ fun AppScaffold(
                 onItemClick = { route ->
                     scope.launch { drawerState.close() }
                     onNavigate(route)
-                }
+                },
+                userName,
+                userEmail
             )
         }
     ) {
