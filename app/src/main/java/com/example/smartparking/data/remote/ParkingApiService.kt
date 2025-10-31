@@ -4,6 +4,12 @@ import com.example.smartparking.data.model.Parking
 import retrofit2.Response
 import retrofit2.http.*
 
+data class UpdateParkingRequest(
+    val status: String,      // "occupied" | "available" | "disabled_slot"
+    val userid: Int? = null,  // null saat free
+    val rolesUser: String? = null
+)
+
 interface ParkingApiService {
 
     // GET /parking/
@@ -32,6 +38,6 @@ interface ParkingApiService {
     @PATCH("parking/{nomor}")
     suspend fun updateParking(
         @Path("nomor") nomor: Int,
-        @Body request: Parking
+        @Body request: UpdateParkingRequest
     ): Response<Parking>
 }

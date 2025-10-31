@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 data class HistoryItem(
-    val date: String,    // "13-09-2025"
-    val time: String,    // "09.00 AM"
-    val location: String // "B3 DTETI FT UGM"
+    val date: String,    // contoh: "13-09-2025"
+    val time: String,    // contoh: "09.00"
+    val location: String // contoh: "B3 DTETI FT UGM"
 )
 
 data class HistoryUiState(
@@ -26,17 +26,17 @@ class HistoryViewModel : ViewModel() {
     val ui: StateFlow<HistoryUiState> = _ui
 
     init {
-        // Dummy loader
+        // Dummy fetch (simulasi BE)
         viewModelScope.launch {
             delay(300)
             _ui.value = HistoryUiState(
                 loading = false,
                 name = "Barbara Neanake",
                 items = listOf(
-                    HistoryItem("13-09-2025", "09.00 AM", "B3 DTETI FT UGM"),
-                    HistoryItem("13-09-2025", "10.30 AM", "Lapangan Satu Bumi"),
-                    HistoryItem("12-09-2025", "01.15 PM", "DTGL Lingkar Teknik"),
-                    HistoryItem("11-09-2025", "08.45 AM", "DTMI Bawah"),
+                    HistoryItem("13-09-2025", "09.00", "B3 DTETI FT UGM"),
+                    HistoryItem("13-09-2025", "10.30", "Lapangan Satu Bumi"),
+                    HistoryItem("12-09-2025", "13.15", "DTGL Lingkar Teknik"),
+                    HistoryItem("11-09-2025", "08.45", "DTMI Bawah"),
                 )
             )
         }

@@ -74,6 +74,8 @@ dependencies {
     // Navigation (ini yang paling penting untuk diperbaiki)
     implementation(libs.androidx.navigation.compose) // Menggunakan alias yang benar
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+    implementation("androidx.navigation:navigation-compose:2.8.3")
+
 
     // Accompanist
     implementation("com.google.accompanist:accompanist-navigation-animation:0.36.0")
