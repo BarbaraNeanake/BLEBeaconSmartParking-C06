@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.example.smartparking.ui.signuppage
 
 import android.content.res.Configuration
@@ -10,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -30,10 +27,6 @@ import com.example.smartparking.R
 import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 @Composable
 fun SignUpPage(
@@ -43,24 +36,19 @@ fun SignUpPage(
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
 
-    LaunchedEffect(ui.registered) {
-        if (ui.registered) onRegistered()
-    }
+    LaunchedEffect(ui.registered) { if (ui.registered) onRegistered() }
 
     SignUpContent(
         ui = ui,
         onName = vm::onName,
         onEmail = vm::onEmail,
         onPlate = vm::onLicensePlate,
-        onCountryCode = vm::onCountryCode,
-        onPhone = vm::onPhone,
         onPassword = vm::onPassword,
         onConfirmPassword = vm::onConfirmPassword,
         onTogglePassword = vm::togglePwd,
         onToggleConfirmPassword = vm::toggleConfirmPwd,
         onRegister = vm::register,
-        onBackToLogin = onBackToLogin,
-        onBirthDatePick = vm::onBirthDateMillis
+        onBackToLogin = onBackToLogin
     )
 }
 
@@ -71,17 +59,14 @@ fun SignUpContent(
     onName: (String) -> Unit,
     onEmail: (String) -> Unit,
     onPlate: (String) -> Unit,
-    onCountryCode: (String) -> Unit,
-    onPhone: (String) -> Unit,
     onPassword: (String) -> Unit,
     onConfirmPassword: (String) -> Unit,
     onTogglePassword: () -> Unit,
     onToggleConfirmPassword: () -> Unit,
     onRegister: () -> Unit,
-    onBackToLogin: () -> Unit,
-    onBirthDatePick: (Long) -> Unit
+    onBackToLogin: () -> Unit
 ) {
-    // Background gradient konsisten
+    // Background gradient yang sama seperti halaman lain
     val gradient = remember {
         Brush.verticalGradient(
             listOf(
@@ -92,48 +77,18 @@ fun SignUpContent(
         )
     }
 
-    val uiDateFormatter = remember { DateTimeFormatter.ofPattern("dd/MM/yyyy") }
-    fun toMillisOrNow(dateStr: String): Long {
-        return try {
-            val ld = LocalDate.parse(dateStr, uiDateFormatter)
-            ld.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        } catch (_: Exception) {
-            Instant.now().toEpochMilli()
-        }
-    }
-
-    // Date picker dialog
-    var showDatePicker by rememberSaveable { mutableStateOf(false) }
-    val dateState = rememberDatePickerState(
-        initialSelectedDateMillis = toMillisOrNow(ui.birthDateFormatted)
-    )
-    if (showDatePicker) {
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    dateState.selectedDateMillis?.let(onBirthDatePick)
-                    showDatePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = { TextButton(onClick = { showDatePicker = false }) { Text("Cancel") } }
-        ) {
-            DatePicker(state = dateState)
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // ===== Header (logo + SPARK + subtitle) — diturunin sedikit =====
+        // ===== Header (logo)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(top = 32.dp),
+                .padding(top = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
@@ -141,25 +96,6 @@ fun SignUpContent(
                 contentDescription = "UGM Logo",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.size(56.dp)
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "SPARK",
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold
-                ),
-                color = Color(0xFF0A2342), // navy
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "Smart Parking System",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                textAlign = TextAlign.Center
             )
         }
 
@@ -188,7 +124,9 @@ fun SignUpContent(
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text("Already have an account? ")
                     Text(
                         "Login",
@@ -223,27 +161,7 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Date of Birth (read-only + open date picker)
-                OutlinedTextField(
-                    value = ui.birthDateFormatted,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Date of Birth (dd/MM/yyyy)") },
-                    trailingIcon = {
-                        Text(
-                            "Pick",
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .clickable { showDatePicker = true }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(Modifier.height(12.dp))
-
-                // License Plate
+                // License Plate (ganti Birth of Date)
                 OutlinedTextField(
                     value = ui.licensePlate,
                     onValueChange = onPlate,
@@ -251,33 +169,6 @@ fun SignUpContent(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                Spacer(Modifier.height(12.dp))
-
-                // Phone (country code + number)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    var expand by remember { mutableStateOf(false) }
-                    OutlinedButton(
-                        onClick = { expand = true },
-                        modifier = Modifier.width(90.dp)
-                    ) { Text(ui.countryCode) }
-                    DropdownMenu(expanded = expand, onDismissRequest = { expand = false }) {
-                        listOf("+62", "+65", "+1", "+81").forEach { code ->
-                            DropdownMenuItem(
-                                onClick = { onCountryCode(code); expand = false },
-                                text = { Text(code) }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    OutlinedTextField(
-                        value = ui.phoneNumber,
-                        onValueChange = onPhone,
-                        label = { Text("Phone Number") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
 
                 Spacer(Modifier.height(12.dp))
 
@@ -356,11 +247,7 @@ fun SignUpContent(
 }
 
 /* -------- PREVIEW -------- */
-@Preview(
-    showBackground = true,
-    uiMode = Configuration.UI_MODE_NIGHT_NO,
-    name = "SignUp – Light"
-)
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "SignUp – Light")
 @Composable
 private fun PreviewSignUp() {
     SmartParkingTheme {
@@ -369,19 +256,14 @@ private fun PreviewSignUp() {
                 name = "Barbara Neanake Ajiesti",
                 email = "barbaraneanake@ugm.ac.id",
                 licensePlate = "AB 1234 CD",
-                countryCode = "+62",
-                phoneNumber = "81234567890",
                 password = "secret123",
                 confirmPassword = "secret123",
-                birthDateFormatted = "31/12/2000",
                 canSubmit = true
             ),
             onName = {}, onEmail = {}, onPlate = {},
-            onCountryCode = {}, onPhone = {},
             onPassword = {}, onConfirmPassword = {},
             onTogglePassword = {}, onToggleConfirmPassword = {},
-            onRegister = {}, onBackToLogin = {},
-            onBirthDatePick = {}
+            onRegister = {}, onBackToLogin = {}
         )
     }
 }

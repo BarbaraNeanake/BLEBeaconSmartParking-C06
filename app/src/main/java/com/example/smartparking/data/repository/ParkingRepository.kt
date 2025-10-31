@@ -2,6 +2,7 @@ package com.example.smartparking.data.repository
 
 import com.example.smartparking.data.remote.ParkingApiService
 import com.example.smartparking.data.model.Parking
+import com.example.smartparking.data.remote.UpdateParkingRequest
 import retrofit2.Response
 
 class ParkingRepository(
@@ -28,7 +29,8 @@ class ParkingRepository(
     }
 
     // PATCH /parking/:nomor
-    suspend fun updateParking(nomor: Int, parking: Parking): Response<Parking> {
-        return apiService.updateParking(nomor, parking)
+    suspend fun updateParking(nomor: Int, status: String, userID: Int?, rolesUser: String?): Response<Parking> {
+        val UpdateParkingRequest_data = UpdateParkingRequest(status = status, userID, rolesUser= rolesUser)
+        return apiService.updateParking(nomor, UpdateParkingRequest_data)
     }
 }

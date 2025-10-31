@@ -1,10 +1,13 @@
 package com.example.smartparking.ui.components
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -15,24 +18,28 @@ fun AppScaffold(
     selectedRoute: String?,
     onNavigate: (String) -> Unit,
     topBarTitle: String = "",
-    content: @Composable () -> Unit,
-    userName: String?,
-    userEmail:String?
+    userName: String? = null,
+    userEmail: String? = null,
+    content: @Composable () -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = true,
         drawerContent = {
             DrawerContent(
                 selectedRoute = selectedRoute,
                 onItemClick = { route ->
-                    scope.launch { drawerState.close() }
-                    onNavigate(route)
+                    scope.launch {
+                        // ⬇️ TUTUP TANPA ANIMASI agar tidak kehilangan density saat navigate
+                        drawerState.snapTo(DrawerValue.Closed)
+                        onNavigate(route)
+                    }
                 },
-                userName,
-                userEmail
+                userName = userName ?: "-",
+                userEmail = userEmail ?: "-"
             )
         }
     ) {
@@ -48,11 +55,12 @@ fun AppScaffold(
                 )
             }
         ) { innerPadding ->
-            Surface(modifier = Modifier.padding(innerPadding)) {
+            Surface(modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+            ) {
                 content()
             }
         }
     }
 }
-
-

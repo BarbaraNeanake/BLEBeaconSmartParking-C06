@@ -1,177 +1,17 @@
-//package com.example.smartparking.ui.beacontest
-//
-//import android.os.Handler
-//import android.os.Looper
-//import androidx.lifecycle.ViewModel
-//import androidx.lifecycle.viewModelScope
-//import com.example.smartparking.data.model.Parking
-//import com.example.smartparking.data.repository.ParkingRepository
-//import kotlinx.coroutines.flow.MutableStateFlow
-//import kotlinx.coroutines.flow.StateFlow
-//import kotlinx.coroutines.launch
-//import okhttp3.*
-//import okhttp3.MediaType.Companion.toMediaType
-//import okhttp3.RequestBody.Companion.toRequestBody
-//import java.io.IOException
-//import kotlin.math.pow
-//import kotlin.math.sqrt
-//
-//data class BeaconData(
-//    val name: String,
-//    val address: String,
-//    val rssiSamples: MutableList<Int> = mutableListOf()
-//)
-//
-//class BeaconViewModel(
-//    private val repository: ParkingRepository
-//) : ViewModel() {
-//
-//    companion object {
-//        private const val DEFAULT_RSSI = -100
-//        private const val INTERVAL_MS: Long = 10_000
-//        private const val IOT_URL = "https://danishritonga-caps-backend.hf.space/pelanggaran"
-//    }
-//
-//    private val _beacons = MutableStateFlow<List<BeaconData>>(emptyList())
-//    val beacons: StateFlow<List<BeaconData>> = _beacons
-//
-//    private val _detectedSlot = MutableStateFlow("Belum terdeteksi")
-//    val detectedSlot: StateFlow<String> = _detectedSlot
-//
-//    private val _assignResult = MutableStateFlow("")
-//    val assignResult: StateFlow<String> = _assignResult
-//
-//    private val handler = Handler(Looper.getMainLooper())
-//
-//    private val fingerprintDataset = mapOf(
-//        1 to mapOf("B1" to -63, "B2" to -81, "B3" to -67),
-//        2 to mapOf("B1" to -70, "B2" to -75, "B3" to -80),
-//        3 to mapOf("B1" to -60, "B2" to -85, "B3" to -72)
-//    )
-//
-//    init {
-//        startMeanCalculation()
-//    }
-//
-//    fun startScan() {
-//        // TODO: implementasi BLE scan
-//        val dummy = listOf(
-//            BeaconData("B1", "AA:BB:CC", mutableListOf(-69, -71, -70, -70, -69)),
-//            BeaconData("B2", "DD:EE:FF", mutableListOf(-74, -76, -75, -74, -75)),
-//            BeaconData("B3", "GG:HH:II", mutableListOf(-81, -79, -80, -80, -79))
-//        )
-//        _beacons.value = dummy
-//    }
-//
-//    fun stopScan() {
-//        _beacons.value = emptyList()
-//    }
-//
-//    private fun startMeanCalculation() {
-//        handler.postDelayed(object : Runnable {
-//            override fun run() {
-//                calculatePosition()
-//                handler.postDelayed(this, INTERVAL_MS)
-//            }
-//        }, INTERVAL_MS)
-//    }
-//
-//    private fun calculatePosition() {
-//        if (_beacons.value.isEmpty()) return
-//
-//        val meanValues = _beacons.value.associate { beacon ->
-//            beacon.name to (beacon.rssiSamples.average().toInt().takeIf { beacon.rssiSamples.isNotEmpty() } ?: DEFAULT_RSSI)
-//        }
-//
-//        var bestSlot = "Tidak diketahui"
-//        var bestDistance = Double.MAX_VALUE
-//
-//        fingerprintDataset.forEach { (slot, fp) ->
-//            val distance = fp.entries.sumOf { (name, fpRssi) ->
-//                val realRssi = meanValues[name] ?: DEFAULT_RSSI
-//                (realRssi - fpRssi).toDouble().pow(2.0)
-//            }.let(::sqrt)
-//
-//            if (distance < bestDistance) {
-//                bestDistance = distance
-//                bestSlot = slot.toString()
-//            }
-//        }
-//
-//        _detectedSlot.value = bestSlot
-//    }
-//
-//    fun assignSlot(userId: Int, userRole: String) {
-//        viewModelScope.launch {
-//            val detected = _detectedSlot.value.toIntOrNull()
-//            if (detected == null) {
-//                _assignResult.value = "Slot belum jelas"
-//                return@launch
-//            }
-//
-//            val response = repository.getParkings()
-//            if (!response.isSuccessful) {
-//                _assignResult.value = "Gagal ambil data parkir dari server"
-//                return@launch
-//            }
-//
-//            val parkings = response.body() ?: emptyList()
-//            val slot = parkings.find { it.nomor == detected }
-//
-//            if (slot == null) {
-//                _assignResult.value = "Slot $detected tidak ada di database"
-//                return@launch
-//            }
-//
-//            handleSlotAssignment(slot, userId, userRole)
-//        }
-//    }
-//
-//    private suspend fun handleSlotAssignment(slot: Parking, userId: Int, userRole: String) {
-//        if (slot.status == "false" && slot.rolesUser == userRole) {
-//            val updatedSlot = slot.copy(userid = userId, status = "True")
-//            val updateRes = repository.updateParking(slot.nomor, updatedSlot)
-//
-//            _assignResult.value = if (updateRes.isSuccessful) {
-//                "Slot ${slot.lokasi} berhasil diassign ke user $userId"
-//            } else {
-//                "Gagal update slot di server"
-//            }
-//        } else {
-//            _assignResult.value = "Slot tidak tersedia atau role tidak sesuai"
-//            sendIoTNotification()
-//        }
-//    }
-//
-//    private fun sendIoTNotification() {
-//        val client = OkHttpClient()
-//        val requestBody = """{"sensor_id": "1"}""".toRequestBody("application/json".toMediaType())
-//        val request = Request.Builder().url(IOT_URL).post(requestBody).build()
-//
-//        client.newCall(request).enqueue(object : Callback {
-//            override fun onFailure(call: Call, e: IOException) {
-//                println("Gagal kirim data ke IoT: ${e.message}")
-//            }
-//
-//            override fun onResponse(call: Call, response: Response) {
-//                println("Response dari IoT: ${response.body?.string()}")
-//            }
-//        })
-//    }
-//}
-
 package com.example.smartparking.ui.beacontest
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlin.math.pow
 import kotlin.math.sqrt
 
 data class BeaconData(
@@ -180,125 +20,187 @@ data class BeaconData(
     val rssiSamples: MutableList<Int> = mutableListOf()
 )
 
+/**
+ * BeaconViewModel – versi lengkap (5 slot: S1..S5).
+ * - Scan BLE (tanpa filter dulu) -> kumpulkan RSSI per device
+ * - Map nama device -> alias beacon (B1/B2/B3/..)
+ * - Hitung mean RSSI per alias -> bandingkan dengan fingerprint -> tentukan slot terbaik
+ */
 class BeaconViewModel : ViewModel() {
 
+    /** Mapping nama perangkat BLE -> alias beacon (SESUIKAN dengan yang terlihat di Logcat) */
+    private val aliasByDeviceName: Map<String, String> = mapOf(
+        "Beacon-Entrance" to "B1",
+        "Beacon-Hall"     to "B2",
+        "Beacon-Lift"     to "B3",
+        // Tambah jika punya beacon lain:
+        // "Beacon-Corner"   to "B4",
+        // "Beacon-Gate"     to "B5",
+    )
+
+    /** Fingerprint 5 slot (contoh angka dummy). GANTI dengan hasil kalibrasi lapangan. */
+    private var fingerprint: Map<String, Map<String, Int>> = mapOf(
+        "S1" to mapOf("B1" to -68, "B2" to -77, "B3" to -78),
+        "S2" to mapOf("B1" to -75, "B2" to -70, "B3" to -79),
+        "S3" to mapOf("B1" to -60, "B2" to -85, "B3" to -72),
+        "S4" to mapOf("B1" to -50, "B2" to -80, "B3" to -69),
+        "S5" to mapOf("B1" to -82, "B2" to -66, "B3" to -74)
+    )
+
+    fun setFingerprint(newFp: Map<String, Map<String, Int>>) {
+        fingerprint = newFp
+    }
+
+    /** Debug list beacons (buat ditampilkan di UI bila perlu) */
     private val _beacons = MutableStateFlow<List<BeaconData>>(emptyList())
     val beacons: StateFlow<List<BeaconData>> = _beacons
 
-    private val _detectedSlot = MutableStateFlow("Belum terdeteksi")
-    val detectedSlot: StateFlow<String> = _detectedSlot
+    /** Hasil estimasi slot terkini: "S1".."S5" (atau null jika belum confident) */
+    private val _detectedSlot = MutableStateFlow<String?>(null)
+    val detectedSlot: StateFlow<String?> = _detectedSlot
+
+    /** Buffer RSSI untuk tiap alias beacon (rolling window 10 detik) */
+    private val samplesByAlias: MutableMap<String, MutableList<Int>> = mutableMapOf()
 
     private val handler = Handler(Looper.getMainLooper())
-    private val interval: Long = 10_000 // setiap 10 detik
+    private val intervalMs = 10_000L
+    private var scanCallback: ScanCallback? = null
+    private var lastEmittedSlot: String? = null
 
-    // Dataset fingerprint (mean RSSI dari tiap slot)
-    private val fingerprintDataset = mapOf(
-        "Slot A" to mapOf("B1" to -63, "B2" to -81, "B3" to -67),
-        "Slot B" to mapOf("B1" to -70, "B2" to -75, "B3" to -80),
-        "Slot C" to mapOf("B1" to -60, "B2" to -85, "B3" to -72)
-    )
+    /** Minimum gap jarak (Euclidean) antara juara 1 & 2 agar dianggap “yakin” */
+    private val minDistanceGap = 0.5
+
+    companion object {
+        private const val TAG = "BLE"
+        private const val MISSING_DEFAULT = -100
+    }
 
     init {
-        startMeanCalculation()
+        // Jadwalkan estimasi pertama setelah interval, lalu berulang
+        startRollingEstimation()
     }
 
     @SuppressLint("MissingPermission")
     fun startScan() {
-        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-        val scanner = bluetoothAdapter.bluetoothLeScanner
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+        val scanner = adapter.bluetoothLeScanner ?: return
 
-        // Reset list supaya fresh
+        // kosongkan buffer lama
         _beacons.value = emptyList()
 
-        val callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val device = result.device
-                val name = device.name ?: return
+        // (opsional) set ke low-latency biar cepat nangkap
+        val settings = android.bluetooth.le.ScanSettings.Builder()
+            .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
 
-                // Filter: hanya device dengan nama diawali "Beacon"
-                if (name.startsWith("Beacon", ignoreCase = true)) {
-                    val address = device.address
-                    val rssi = result.rssi
+        // Tidak pakai ScanFilter karena kita mau prefix, bukan exact match
+        val filters = emptyList<android.bluetooth.le.ScanFilter>()
 
-                    // Cek apakah beacon sudah ada di list
-                    val currentList = _beacons.value.toMutableList()
-                    val existing = currentList.find { it.address == address }
+        val cb = object : android.bluetooth.le.ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
+                // Ambil nama dari iklan dulu, kalau null baru dari device
+                val name = result.scanRecord?.deviceName ?: result.device.name ?: return
 
-                    if (existing != null) {
-                        existing.rssiSamples.add(rssi)
-                    } else {
-                        currentList.add(
-                            BeaconData(
-                                name = name,
-                                address = address,
-                                rssiSamples = mutableListOf(rssi)
-                            )
-                        )
-                    }
-                    _beacons.value = currentList
+                // FILTER: hanya perangkat dengan nama diawali "Beacon" (tanpa peduli kapital)
+                if (!name.startsWith("Beacon", ignoreCase = true)) return
+
+                val address = result.device.address
+                val rssi = result.rssi
+
+                // update list beacon yang kita simpan
+                val curr = _beacons.value.toMutableList()
+                val exist = curr.find { it.address == address }
+                if (exist != null) {
+                    exist.rssiSamples.add(rssi)
+                } else {
+                    curr.add(BeaconData(name = name, address = address, rssiSamples = mutableListOf(rssi)))
                 }
+                _beacons.value = curr
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                android.util.Log.e("BLE", "Scan failed: $errorCode")
             }
         }
 
-        // Mulai scanning
-        scanner.startScan(callback)
-
-        // Simpan callback biar bisa stop nanti
-        scanCallback = callback
+        scanCallback = cb
+        scanner.startScan(filters, settings, cb)
     }
 
     @SuppressLint("MissingPermission")
     fun stopScan() {
-        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-        val scanner = bluetoothAdapter.bluetoothLeScanner
-        scanCallback?.let { scanner.stopScan(it) }
+        val scanner = BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner
+        scanCallback?.let { scanner?.stopScan(it) }
         scanCallback = null
+        Log.d(TAG, "stopScan() called")
+    }
+
+    private fun startRollingEstimation() {
+        handler.postDelayed(object : Runnable {
+            override fun run() {
+                try {
+                    estimateAndEmit()
+                } finally {
+                    handler.postDelayed(this, intervalMs)
+                }
+            }
+        }, intervalMs)
+    }
+
+    /** Ambil mean RSSI per alias -> hitung jarak Euclidean ke fingerprint -> pilih slot terbaik */
+    private fun estimateAndEmit() {
+        if (fingerprint.isEmpty()) return
+
+        // Mean RSSI untuk tiap alias. Kalau kosong, pakai MISSING_DEFAULT.
+        val means: Map<String, Int> = fingerprint
+            .flatMap { it.value.keys } // semua alias yang dipakai fingerprint
+            .distinct()
+            .associateWith { alias ->
+                val samples = samplesByAlias[alias]
+                if (samples.isNullOrEmpty()) MISSING_DEFAULT else samples.average().toInt()
+            }
+
+        var bestSlot: String? = null
+        var bestDist = Double.MAX_VALUE
+        var secondBest = Double.MAX_VALUE
+
+        for ((slotId, fp) in fingerprint) {
+            var sumSq = 0.0
+            for ((alias, fpRssi) in fp) {
+                val real = means[alias] ?: MISSING_DEFAULT
+                val d = (real - fpRssi).toDouble()
+                sumSq += d * d
+            }
+            val dist = sqrt(sumSq)
+            if (dist < bestDist) {
+                secondBest = bestDist
+                bestDist = dist
+                bestSlot = slotId
+            } else if (dist < secondBest) {
+                secondBest = dist
+            }
+        }
+
+        // Terapkan ambang gap supaya tidak sensitif noise
+        val confident = (secondBest - bestDist) >= minDistanceGap
+
+        if (bestSlot != null && confident && bestSlot != lastEmittedSlot) {
+            lastEmittedSlot = bestSlot
+            _detectedSlot.value = bestSlot
+            Log.d(TAG, "Detected slot = $bestSlot (dist=$bestDist, gap=${secondBest - bestDist})")
+        } else {
+            Log.d(TAG, "No confident slot. best=$bestSlot dist=$bestDist gap=${secondBest - bestDist}")
+        }
+
+        // Geser jendela: kosongkan buffer agar pengukuran berikutnya fresh
+        samplesByAlias.clear()
+        // Debug list beacons juga direset supaya isi UI tidak “membengkak” terus
         _beacons.value = emptyList()
     }
 
-    // Tambahkan properti di ViewModel:
-    private var scanCallback: ScanCallback? = null
-
-
-    private fun startMeanCalculation() {
-        handler.postDelayed(object : Runnable {
-            override fun run() {
-                calculatePosition()
-                handler.postDelayed(this, interval)
-            }
-        }, interval)
-    }
-
-    private fun calculatePosition() {
-        if (_beacons.value.isEmpty()) return
-
-        // Hitung mean RSSI dari beacon real-time
-        val meanValues = _beacons.value.associate { beacon ->
-            val mean = if (beacon.rssiSamples.isNotEmpty()) {
-                beacon.rssiSamples.average().toInt()
-            } else {
-                -100 // default kalau kosong
-            }
-            beacon.name to mean
-        }
-
-        // Cari slot terdekat dengan Euclidean Distance
-        var bestSlot = "Tidak diketahui"
-        var bestDistance = Double.MAX_VALUE
-
-        for ((slot, fp) in fingerprintDataset) {
-            var sumSq = 0.0
-            for ((beaconName, fpRssi) in fp) {
-                val realRssi = meanValues[beaconName] ?: -100
-                sumSq += (realRssi - fpRssi).toDouble().pow(2.0)
-            }
-            val distance = sqrt(sumSq)
-            if (distance < bestDistance) {
-                bestDistance = distance
-                bestSlot = slot
-            }
-        }
-
-        _detectedSlot.value = bestSlot
+    override fun onCleared() {
+        super.onCleared()
+        stopScan()
+        handler.removeCallbacksAndMessages(null)
     }
 }

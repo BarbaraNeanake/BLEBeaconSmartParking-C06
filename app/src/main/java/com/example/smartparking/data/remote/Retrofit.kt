@@ -17,7 +17,7 @@ object RetrofitProvider {
     }
 
     val retrofit = Retrofit.Builder()
-        .baseUrl("https://backend-capstone-lovat.vercel.app/") // ganti sesuai server kamu
+        .baseUrl("http://192.168.18.110:3000/") // ganti sesuai server kamu
         .client(client)
         .addConverterFactory(GsonConverterFactory.create()) // ✅ pakai GSON
         .build()

@@ -20,17 +20,18 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.smartparking.R
+import com.example.smartparking.ui.beacontest.BeaconViewModel
 import kotlin.math.roundToInt
 
 // ----------------------------
-// Data model & layout tetap lokal di file ini (koordinat TETAP)
+// Data model tetap (koordinat statis)
 // ----------------------------
 data class Slot(
     val id: String,
-    val xPct: Float,  // 0f..1f dari kiri
-    val yPct: Float,  // 0f..1f dari atas
-    val wPct: Float,  // 0f..1f dari lebar container
-    val hPct: Float,  // 0f..1f dari tinggi container
+    val xPct: Float,
+    val yPct: Float,
+    val wPct: Float,
+    val hPct: Float,
     val accessible: Boolean = false,
     val occupied: Boolean = false
 )
@@ -44,84 +45,88 @@ data class Lot(
 )
 
 // ----------------------------
-// SCREEN
+// COMPOSABLE utama
 // ----------------------------
 @Composable
 fun LiveParkingPage(
-    vm: LiveParkingViewModel = viewModel()
+    vm: LiveParkingViewModel = viewModel(),
+    beaconVM: BeaconViewModel = viewModel(),
+    currentUserId: Int? = null
 ) {
+    // State dari backend
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val statusById by vm.statusById.collectAsStateWithLifecycle()
 
-    // Base lot dengan KOORDINAT TETAP (ubah sesuai denah kamu)
+    // State dari BLE
+    val detectedSlot by beaconVM.detectedSlot.collectAsStateWithLifecycle()
+
+    // Mulai BLE scanning otomatis
+    DisposableEffect(Unit) {
+        beaconVM.startScan()
+        onDispose { beaconVM.stopScan() }
+    }
+
+    // Saat beacon mendeteksi slot baru → update backend
+    LaunchedEffect(detectedSlot) {
+        if (!detectedSlot.equals("Belum terdeteksi", ignoreCase = true)) {
+            vm.applyBeaconDetection(detectedSlot, currentUserId)
+        }
+    }
+
+    // Base lot dengan koordinat tetap
     val baseLot = remember { sampleLot(R.drawable.liveparkingmap) }
 
-    // Gabungkan status dari VM ke lot (hanya warna yang berubah)
+    // Update warna berdasarkan status backend
     val coloredLot = remember(baseLot, statusById) {
         val updatedSlots = baseLot.slots.map { s ->
             val status = statusById[s.id]?.lowercase()
             val isOcc = status == "occupied"
             val isAcc = status == "disabled_slot"
-            s.copy(
-                occupied = isOcc,
-                accessible = isAcc
-            )
+            s.copy(occupied = isOcc, accessible = isAcc)
         }
         val used = updatedSlots.count { it.occupied }
         val free = updatedSlots.size - used
         baseLot.copy(slots = updatedSlots, used = used, free = free)
     }
 
+    // --- UI utama ---
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(vertical = 16.dp, horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            "Live Parking",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-        )
-        Text(
-            "Kantong Parkir FT UGM",
-            style = MaterialTheme.typography.bodyMedium
-        )
+        Text("Live Parking", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+        Text("Kantong Parkir FT UGM", style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(12.dp))
 
         when {
-            loading -> {
-                CircularProgressIndicator()
-            }
+            loading -> CircularProgressIndicator()
             error != null -> {
                 Text(text = error ?: "-", color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = vm::reload) { Text("Coba Lagi") }
             }
-            else -> {
-                LotCard(
-                    lot = coloredLot,
-                    onRefresh = vm::reload
-                )
-            }
+            else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
         }
+
+//            DeveloperBar(
+//                onPick = { id -> vm.forceOccupySlotForDebug(id) }
+//            )
+
     }
 }
 
 // ----------------------------
-// CARD (pakai koordinat tetap, warna dari status)
+// CARD
 // ----------------------------
 @Composable
-private fun LotCard(
-    lot: Lot,
-    onRefresh: () -> Unit
-) {
+private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
     Card(
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(14.dp)) {
@@ -130,14 +135,8 @@ private fun LotCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    lot.name,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                )
-                AssistChip(
-                    onClick = { /* optional */ },
-                    label = { Text("${lot.free} kosong • ${lot.used} terpakai") }
-                )
+                Text(lot.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+                AssistChip(onClick = {}, label = { Text("${lot.free} kosong • ${lot.used} terpakai") })
             }
 
             Spacer(Modifier.height(10.dp))
@@ -148,8 +147,7 @@ private fun LotCard(
                     .height(240.dp)
                     .clip(RoundedCornerShape(12.dp))
             ) {
-                val density = LocalDensity.current // ✅ Tambahkan ini
-
+                val density = LocalDensity.current
                 val boxWidthPx = with(density) { maxWidth.toPx() }
                 val boxHeightPx = with(density) { maxHeight.toPx() }
 
@@ -161,24 +159,13 @@ private fun LotCard(
                 )
 
                 lot.slots.forEach { s ->
-                    val xPct = s.xPct.coerceIn(0f, 1f)
-                    val yPct = s.yPct.coerceIn(0f, 1f)
-                    val wPct = s.wPct.coerceIn(0f, 1f)
-                    val hPct = s.hPct.coerceIn(0f, 1f)
-
-                    val wPx = (boxWidthPx * wPct).coerceAtLeast(1f)
-                    val hPx = (boxHeightPx * hPct).coerceAtLeast(1f)
-
-                    val maxX = (boxWidthPx - wPx).coerceAtLeast(0f)
-                    val maxY = (boxHeightPx - hPx).coerceAtLeast(0f)
-
-                    val xPx = (boxWidthPx * xPct).coerceIn(0f, maxX)
-                    val yPx = (boxHeightPx * yPct).coerceIn(0f, maxY)
-
-                    val wDp = with(density) { wPx.toDp() }
-                    val hDp = with(density) { hPx.toDp() }
+                    val xPx = (boxWidthPx * s.xPct).coerceIn(0f, boxWidthPx - (boxWidthPx * s.wPct))
+                    val yPx = (boxHeightPx * s.yPct).coerceIn(0f, boxHeightPx - (boxHeightPx * s.hPct))
+                    val wDp = with(density) { (boxWidthPx * s.wPct).toDp() }
+                    val hDp = with(density) { (boxHeightPx * s.hPct).toDp() }
 
                     val baseColor = when {
+                        s.accessible -> Color(0xFF2F65F5)
                         s.occupied -> Color(0xFFD93636)
                         else -> Color(0xFF18B46E)
                     }
@@ -190,26 +177,21 @@ private fun LotCard(
                             .background(baseColor.copy(alpha = 0.85f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = s.id,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White
-                        )
+                        Text(text = s.id, style = MaterialTheme.typography.labelMedium, color = Color.White)
                     }
                 }
             }
 
             Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = onRefresh,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            ) { Text("Refresh") }
+            Button(onClick = onRefresh, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Refresh")
+            }
         }
     }
 }
 
 // ----------------------------
-// KOORDINAT TETAP (sesuaikan sendiri)
+// KOORDINAT TETAP
 // ----------------------------
 private fun sampleLot(@DrawableRes mapRes: Int): Lot {
     val slots = listOf(
@@ -217,9 +199,7 @@ private fun sampleLot(@DrawableRes mapRes: Int): Lot {
         Slot("S2", 0.30f, 0.50f, 0.10f, 0.33f),
         Slot("S3", 0.45f, 0.50f, 0.10f, 0.33f),
         Slot("S4", 0.61f, 0.50f, 0.10f, 0.33f),
-        Slot("S5", 0.76f, 0.50f, 0.10f, 0.33f),
-        // contoh slot aksesibilitas tetap biru kalau status DB = disabled_slot
-        // default-nya accessible=false, akan di-set dari VM
+        Slot("S5", 0.76f, 0.50f, 0.10f, 0.33f)
     )
     val used = slots.count { it.occupied }
     val free = slots.size - used
@@ -231,3 +211,21 @@ private fun sampleLot(@DrawableRes mapRes: Int): Lot {
         slots = slots
     )
 }
+
+@Composable
+private fun DeveloperBar(
+    onPick: (String) -> Unit
+) {
+    // Bar kecil untuk memilih slot secara manual
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        listOf("S1","S2","S3","S4","S5").forEach { id ->
+            Button(onClick = { onPick(id) }) { Text(id) }
+        }
+    }
+}
+
