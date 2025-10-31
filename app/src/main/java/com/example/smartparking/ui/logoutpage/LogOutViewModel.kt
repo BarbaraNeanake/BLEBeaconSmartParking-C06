@@ -1,62 +1,34 @@
 package com.example.smartparking.ui.logoutpage
 
-import android.content.res.Configuration
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.smartparking.ui.theme.SmartParkingTheme
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
-@Composable
-fun LogoutPage(
-    vm: LogoutViewModel = viewModel(),
-    onCancel: () -> Unit,
-    onLoggedOut: () -> Unit
-) {
-    val state by vm.uiState.collectAsState()
+data class LogoutUiState(
+    val showDialog: Boolean = true,
+    val loading: Boolean = false
+)
 
-    if (state.showDialog) {
-        AlertDialog(
-            onDismissRequest = { vm.cancelDialog(); onCancel() },
-            title = { Text("Log out?") },
-            text = {
-                Text(
-                    if (state.loading) "Signing you out…"
-                    else "Anda akan keluar dari akun ini dan kembali ke halaman Login."
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !state.loading,
-                    onClick = { vm.confirmLogout(onSuccess = onLoggedOut) }
-                ) {
-                    Text("Log out")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !state.loading,
-                    onClick = { vm.cancelDialog(); onCancel() }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    } else {
-        // kalau dialog sudah ditutup (Cancel), langsung balik
-        LaunchedEffect(Unit) { onCancel() }
+class LogoutViewModel : ViewModel() {
+
+    private val _uiState = MutableStateFlow(LogoutUiState())
+    val uiState = _uiState.asStateFlow()
+
+    /** Tutup dialog tanpa logout */
+    fun cancelDialog() {
+        _uiState.value = _uiState.value.copy(showDialog = false)
     }
-}
 
-/* ---- Preview (dummy) ---- */
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
-@Composable
-private fun PreviewLogout() {
-    SmartParkingTheme {
-        LogoutPage(
-            onCancel = {},
-            onLoggedOut = {}
-        )
+    /** Konfirmasi logout (simulasi, nanti ganti call BE) */
+    fun confirmLogout(onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(loading = true)
+            delay(600) // simulasi proses
+            _uiState.value = _uiState.value.copy(loading = false, showDialog = false)
+            onSuccess()
+        }
     }
 }

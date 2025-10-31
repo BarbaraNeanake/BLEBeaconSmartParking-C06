@@ -12,8 +12,6 @@ data class SignUpUiState(
     val name: String = "",
     val email: String = "",
     val licensePlate: String = "",
-    val countryCode: String = "+62",
-    val phoneNumber: String = "",
     val password: String = "",
     val confirmPassword: String = "",
     val showPassword: Boolean = false,
@@ -22,9 +20,7 @@ data class SignUpUiState(
     val error: String? = null,
     val registered: Boolean = false,
     val canSubmit: Boolean = false
-) {
-    val phoneE164: String get() = countryCode + phoneNumber.filter { it.isDigit() }
-}
+)
 
 class SignUpViewModel : ViewModel() {
 
@@ -43,10 +39,6 @@ class SignUpViewModel : ViewModel() {
     fun onLicensePlate(v: String) = _ui.update {
         it.copy(licensePlate = v.uppercase(), error = null, canSubmit = canSubmit(it.name, it.email, v.uppercase(), it.password, it.confirmPassword))
     }
-
-    fun onCountryCode(v: String) = _ui.update { it.copy(countryCode = v, error = null) }
-
-    fun onPhone(v: String) = _ui.update { it.copy(phoneNumber = v, error = null) }
 
     fun onPassword(v: String) = _ui.update {
         it.copy(password = v, error = null, canSubmit = canSubmit(it.name, it.email, it.licensePlate, v, it.confirmPassword))

@@ -43,8 +43,6 @@ fun SignUpPage(
         onName = vm::onName,
         onEmail = vm::onEmail,
         onPlate = vm::onLicensePlate,
-        onCountryCode = vm::onCountryCode,
-        onPhone = vm::onPhone,
         onPassword = vm::onPassword,
         onConfirmPassword = vm::onConfirmPassword,
         onTogglePassword = vm::togglePwd,
@@ -61,8 +59,6 @@ fun SignUpContent(
     onName: (String) -> Unit,
     onEmail: (String) -> Unit,
     onPlate: (String) -> Unit,
-    onCountryCode: (String) -> Unit,
-    onPhone: (String) -> Unit,
     onPassword: (String) -> Unit,
     onConfirmPassword: (String) -> Unit,
     onTogglePassword: () -> Unit,
@@ -87,12 +83,12 @@ fun SignUpContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // ===== Header (logo + SPARK + subtitle) — diturunin sedikit =====
+        // ===== Header (logo)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(top = 32.dp),
+                .padding(top = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
@@ -100,25 +96,6 @@ fun SignUpContent(
                 contentDescription = "UGM Logo",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.size(56.dp)
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "SPARK",
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.ExtraBold
-                ),
-                color = Color(0xFF0A2342), // navy
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "Smart Parking System",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                ),
-                textAlign = TextAlign.Center
             )
         }
 
@@ -192,33 +169,6 @@ fun SignUpContent(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                Spacer(Modifier.height(12.dp))
-
-                // Phone (country code + number)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    var expand by remember { mutableStateOf(false) }
-                    OutlinedButton(
-                        onClick = { expand = true },
-                        modifier = Modifier.width(90.dp)
-                    ) { Text(ui.countryCode) }
-                    DropdownMenu(expanded = expand, onDismissRequest = { expand = false }) {
-                        listOf("+62", "+65", "+1", "+81").forEach { code ->
-                            DropdownMenuItem(
-                                text = { Text(code) },
-                                onClick = { onCountryCode(code); expand = false }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    OutlinedTextField(
-                        value = ui.phoneNumber,
-                        onValueChange = onPhone,
-                        label = { Text("Phone Number") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
 
                 Spacer(Modifier.height(12.dp))
 
@@ -306,14 +256,11 @@ private fun PreviewSignUp() {
                 name = "Barbara Neanake Ajiesti",
                 email = "barbaraneanake@ugm.ac.id",
                 licensePlate = "AB 1234 CD",
-                countryCode = "+62",
-                phoneNumber = "81234567890",
                 password = "secret123",
                 confirmPassword = "secret123",
                 canSubmit = true
             ),
             onName = {}, onEmail = {}, onPlate = {},
-            onCountryCode = {}, onPhone = {},
             onPassword = {}, onConfirmPassword = {},
             onTogglePassword = {}, onToggleConfirmPassword = {},
             onRegister = {}, onBackToLogin = {}

@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,8 +58,9 @@ private val parkingLocations: List<ParkingLocation> = listOf(
 
 // ---------- UI ----------
 @Composable
-fun HomePage(vm: HomePageViewModel = viewModel()) {
-    // ambil state dari VM (delegate perlu import getValue)
+fun HomePage(
+    vm: HomePageViewModel = viewModel()
+) {
     val parkingStatus by vm.parkingStatus
     LaunchedEffect(Unit) { vm.fetchParkingStatus() }
 
@@ -73,12 +75,16 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
         )
     }
 
+    val listState = rememberLazyListState()
+
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
     ) {
         // Header
         item {
@@ -89,7 +95,8 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
                 Image(
                     painter = painterResource(id = R.drawable.ugm_logo),
                     contentDescription = "UGM Logo",
-                    modifier = Modifier.size(80.dp)
+                    modifier = Modifier.size(80.dp),
+                    contentScale = ContentScale.Fit
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -111,11 +118,18 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
 
         // Info slot
         item {
-            InfoCard(
-                title = "Slot Parkir Mobil di FT Saat Ini",
-                totalSlots = parkingStatus.totalSlots,
-                usedSlots = parkingStatus.usedSlots
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                InfoCard(
+                    title = "Slot Parkir Mobil di FT Saat Ini",
+                    textAlign = TextAlign.Center,
+                    totalSlots = parkingStatus.totalSlots,
+                    usedSlots = parkingStatus.usedSlots
+                )
+            }
         }
 
         // Peta
@@ -131,7 +145,7 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
                     contentScale = ContentScale.FillBounds,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(220.dp)
+                        .height(280.dp)
                 )
             }
         }
@@ -144,7 +158,7 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
 }
 
 @Composable
-private fun InfoCard(title: String, totalSlots: Int, usedSlots: Int) {
+private fun InfoCard(title: String, totalSlots: Int, usedSlots: Int, textAlign: TextAlign) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -211,7 +225,12 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
             ) {
                 Text("Kode", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text("Lokasi/Departemen", fontWeight = FontWeight.Bold, modifier = Modifier.weight(2f))
-                Text("Sisa Slot", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                Text(
+                    "Sisa Slot",
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
             }
             // rows
             rows.forEach { p: ParkingLocation ->
@@ -243,4 +262,3 @@ private fun PreviewHomePage() {
         HomePage()
     }
 }
-

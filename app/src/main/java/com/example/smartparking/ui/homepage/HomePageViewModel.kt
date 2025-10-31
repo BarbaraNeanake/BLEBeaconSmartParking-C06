@@ -4,6 +4,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // status parkir yg ditampilkan di InfoCard
@@ -19,7 +20,8 @@ class HomePageViewModel : ViewModel() {
 
     fun fetchParkingStatus() {
         viewModelScope.launch {
-            // TODO: ganti dengan call ke API nanti
+            // Simulasi fetch (biar terlihat smooth di UI); ganti dengan API nanti
+            delay(0)
             _parkingStatus.value = ParkingStatus(totalSlots = 147, usedSlots = 65)
         }
     }
