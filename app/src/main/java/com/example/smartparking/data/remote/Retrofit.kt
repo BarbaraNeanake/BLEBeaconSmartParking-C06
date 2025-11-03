@@ -5,6 +5,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import com.example.smartparking.BuildConfig
 
 object RetrofitProvider {
 
@@ -17,7 +18,7 @@ object RetrofitProvider {
     }
 
     val retrofit = Retrofit.Builder()
-        .baseUrl("http://172.20.80.1:3000/") // ganti sesuai server kamu
+        .baseUrl(BuildConfig.BASE_URL) // ganti sesuai server kamu
         .client(client)
         .addConverterFactory(GsonConverterFactory.create()) // ✅ pakai GSON
         .build()
