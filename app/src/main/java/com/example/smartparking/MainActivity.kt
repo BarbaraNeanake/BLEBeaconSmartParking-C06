@@ -200,29 +200,29 @@ class MainActivity : ComponentActivity() {
                     Scaffold(
                         containerColor = Color.Transparent,
                         contentWindowInsets = WindowInsets(0),
-                        topBar = {
-                            if (isPrivate) {
-                                TopAppBar(
-                                    title = {
-                                        Text(
-                                            when (currentRoute) {
-                                                Screen.Home.route -> "Home"
-                                                Screen.Live.route -> "Live Parking"
-                                                Screen.History.route -> "History"
-                                                Screen.Info.route -> "Information"
-                                                Screen.Logout.route -> "Logout"
-                                                else -> ""
-                                            }
-                                        )
-                                    },
-                                    navigationIcon = {
-                                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
-                                        }
-                                    }
-                                )
-                            }
-                        }
+//                        topBar = {
+//                            if (isPrivate) {
+//                                TopAppBar(
+//                                    title = {
+//                                        Text(
+//                                            when (currentRoute) {
+//                                                Screen.Home.route -> "Home"
+//                                                Screen.Live.route -> "Live Parking"
+//                                                Screen.History.route -> "History"
+//                                                Screen.Info.route -> "Information"
+//                                                Screen.Logout.route -> "Logout"
+//                                                else -> ""
+//                                            }
+//                                        )
+//                                    },
+//                                    navigationIcon = {
+//                                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+//                                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
+//                                        }
+//                                    }
+//                                )
+//                            }
+//                        }
                     ) { innerPadding ->
                         Box(
                             Modifier

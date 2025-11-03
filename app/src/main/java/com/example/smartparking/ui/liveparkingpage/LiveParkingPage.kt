@@ -10,17 +10,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.smartparking.R
 import com.example.smartparking.ui.beacontest.BeaconViewModel
+import com.example.smartparking.ui.theme.GradientBottom
+import com.example.smartparking.ui.theme.GradientTop
 import kotlin.math.roundToInt
 
 // ----------------------------
@@ -90,36 +95,75 @@ fun LiveParkingPage(
         baseLot.copy(slots = updatedSlots, used = used, free = free)
     }
 
-    // --- UI utama ---
-    Column(
+    // ----------------------------
+    // UI: background gradasi + header (logo + judul center)
+    // ----------------------------
+    val bg = remember {
+        Brush.verticalGradient(
+            listOf(
+                GradientTop.copy(alpha = 0.9f),
+                Color.White,
+                GradientBottom.copy(alpha = 0.9f)
+            )
+        )
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(vertical = 16.dp, horizontal = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(bg)
+            .padding(horizontal = 16.dp, vertical = 16.dp),
+        contentAlignment = Alignment.TopCenter
     ) {
-        Text("Live Parking", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-        Text("Kantong Parkir FT UGM", style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(12.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Logo UGM (center)
+            Image(
+                painter = painterResource(id = R.drawable.ugm_logo),
+                contentDescription = "UGM Logo",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(84.dp)
+                    .padding(top = 4.dp, bottom = 6.dp)
+            )
 
-        when {
-            loading -> CircularProgressIndicator()
-            error != null -> {
-                Text(text = error ?: "-", color = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.height(8.dp))
-                Button(onClick = vm::reload) { Text("Coba Lagi") }
+            // Judul halaman (center)
+            Text(
+                text = "Live Parking",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp
+                ),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Kantong Parkir Fakultas Teknik UGM",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(14.dp))
+
+            // Konten dinamis — TIDAK diubah
+            when {
+                loading -> CircularProgressIndicator()
+                error != null -> {
+                    Text(text = error ?: "-", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = vm::reload, shape = RoundedCornerShape(12.dp)) { Text("Coba Lagi") }
+                }
+                else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
             }
-            else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
         }
-
-//            DeveloperBar(
-//                onPick = { id -> vm.forceOccupySlotForDebug(id) }
-//            )
-
     }
 }
 
 // ----------------------------
-// CARD
+// CARD (TIDAK DIUBAH)
 // ----------------------------
 @Composable
 private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
@@ -191,7 +235,7 @@ private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
 }
 
 // ----------------------------
-// KOORDINAT TETAP
+// KOORDINAT TETAP (TIDAK DIUBAH)
 // ----------------------------
 private fun sampleLot(@DrawableRes mapRes: Int): Lot {
     val slots = listOf(
@@ -216,7 +260,6 @@ private fun sampleLot(@DrawableRes mapRes: Int): Lot {
 private fun DeveloperBar(
     onPick: (String) -> Unit
 ) {
-    // Bar kecil untuk memilih slot secara manual
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,4 +271,3 @@ private fun DeveloperBar(
         }
     }
 }
-
