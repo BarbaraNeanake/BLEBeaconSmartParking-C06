@@ -18,6 +18,15 @@ data class LoginResponse(
     val user: User
 )
 
+data class UpdatePasswordRequest(
+    val email: String,
+    val password: String          // backend-mu saat ini memang expect field "password"
+)
+
+data class BasicResponse(
+    val message: String? = null
+)
+
 interface UserApiService {
 
     // 🔹 Get all users
@@ -39,4 +48,9 @@ interface UserApiService {
     // 🔹 Login user (mengembalikan token + data user)
     @POST("users/login")
     suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
+
+    @PATCH("users/updatepassword")
+    suspend fun updatePassword(
+        @Body body: UpdatePasswordRequest
+    ): Response<BasicResponse>
 }

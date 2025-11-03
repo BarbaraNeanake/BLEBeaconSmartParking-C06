@@ -38,12 +38,13 @@ class BeaconViewModel : ViewModel() {
         // "Beacon-Gate"     to "B5",
     )
 
+    
     /** Fingerprint 5 slot (contoh angka dummy). GANTI dengan hasil kalibrasi lapangan. */
     private var fingerprint: Map<String, Map<String, Int>> = mapOf(
         "S1" to mapOf("B1" to -68, "B2" to -77, "B3" to -78),
         "S2" to mapOf("B1" to -75, "B2" to -70, "B3" to -79),
         "S3" to mapOf("B1" to -60, "B2" to -85, "B3" to -72),
-        "S4" to mapOf("B1" to -50, "B2" to -80, "B3" to -69),
+        "S4" to mapOf("B1" to -50, "B2" to -55, "B3" to -84),
         "S5" to mapOf("B1" to -82, "B2" to -66, "B3" to -74)
     )
 

@@ -5,6 +5,7 @@ import com.example.smartparking.data.model.SessionEntity
 import com.example.smartparking.data.model.User
 import com.example.smartparking.data.remote.LoginRequest
 import com.example.smartparking.data.remote.RetrofitProvider
+import com.example.smartparking.data.remote.UpdatePasswordRequest
 import com.example.smartparking.data.repository.dao.SessionDao
 import retrofit2.Response
 
@@ -41,6 +42,16 @@ class UserRepository(
         )
 
         sessionDao.upsert(session)   // ✅ sekarang pakai instance
+    }
+
+    suspend fun updatePassword(email: String, newPassword: String): Result<String> = runCatching {
+        val resp = RetrofitProvider.userApi.updatePassword(
+            UpdatePasswordRequest(email = email, password = newPassword)
+        )
+        if (!resp.isSuccessful) {
+            throw Exception("Gagal update password: HTTP ${resp.code()} ${resp.message()}")
+        }
+        resp.body()?.message ?: "Password updated"
     }
 
     suspend fun logout() {

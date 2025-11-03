@@ -35,7 +35,7 @@ fun EditPassPage(
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
 
-    // kalau sukses → balik ke login
+    // ⬇️ Jika sukses -> panggil callback untuk kembali ke halaman Login
     LaunchedEffect(ui.success) {
         if (ui.success) onBackToLogin()
     }
@@ -57,11 +57,9 @@ fun EditPassPage(
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // ===== Header (logo + brand) =====
             Spacer(Modifier.height(16.dp))
             Image(
                 painter = painterResource(id = R.drawable.ugm_logo),
@@ -78,14 +76,10 @@ fun EditPassPage(
                     color = Color(0xFF0A2342)
                 )
             )
-            Text(
-                text = "Smart Parking System",
-                style = MaterialTheme.typography.titleMedium
-            )
+            Text(text = "Smart Parking System", style = MaterialTheme.typography.titleMedium)
 
             Spacer(Modifier.height(18.dp))
 
-            // ===== Card form =====
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -140,9 +134,7 @@ fun EditPassPage(
                                     .clickable { vm.toggleShowNew() }
                             )
                         },
-                        supportingText = {
-                            Text("Min. 6 karakter • campur huruf & angka untuk keamanan.")
-                        },
+                        supportingText = { Text("Min. 6 karakter • campur huruf & angka untuk keamanan.") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -178,7 +170,6 @@ fun EditPassPage(
 
                     Spacer(Modifier.height(16.dp))
 
-                    // CTA
                     Button(
                         onClick = vm::submitReset,
                         enabled = !ui.loading,
@@ -208,7 +199,6 @@ fun EditPassPage(
     }
 }
 
-/* ===== Preview ===== */
 @Preview(
     name = "EditPass – Light",
     uiMode = Configuration.UI_MODE_NIGHT_NO,

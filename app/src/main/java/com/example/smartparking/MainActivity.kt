@@ -33,11 +33,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.smartparking.data.network.TokenProvider
+import com.example.smartparking.data.remote.RetrofitProvider
 import com.example.smartparking.data.repository.UserRepository
 import com.example.smartparking.data.repository.db.AppDatabase
 import com.example.smartparking.ui.beacontest.BeaconViewModel
 import com.example.smartparking.ui.components.DrawerContent
 import com.example.smartparking.ui.editpasspage.EditPassPage
+import com.example.smartparking.ui.editpasspage.EditPassVMFactory
+import com.example.smartparking.ui.editpasspage.EditPassViewModel
 import com.example.smartparking.ui.historypage.HistoryPage
 import com.example.smartparking.ui.homepage.HomePage
 import com.example.smartparking.ui.informationpage.InformationPage
@@ -165,6 +168,9 @@ class MainActivity : ComponentActivity() {
                 val userId: Int? = session?.userId
                 val userRole: String? = session?.role
 
+                val api = remember { com.example.smartparking.data.repository.UserRepository(db.sessionDao()) }
+                val vm: EditPassViewModel = viewModel(factory = EditPassVMFactory(api))
+
                 LaunchedEffect(Unit) {
                     // Ketika slot terdeteksi, update DB lalu reload warna
                     beaconVm.detectedSlot.collect { slotId ->
@@ -270,7 +276,13 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 composable(Screen.EditPass.route) {
-                                    EditPassPage(onBackToLogin = { navController.popBackStack() })
+                                    EditPassPage(
+                                        vm = vm,
+                                        onBackToLogin = {
+                                            // balik ke login setelah success
+                                            navController.popBackStack(Screen.Login.route, inclusive = false)
+                                        }
+                                    )
                                 }
 
                                 // ---------- Private ----------
