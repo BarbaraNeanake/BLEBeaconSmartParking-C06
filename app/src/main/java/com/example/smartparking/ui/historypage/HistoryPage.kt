@@ -96,14 +96,20 @@ private fun HistoryContent(ui: HistoryUiState) {
                 }
             }
             else -> {
-                // Card tabel
+                // ========== CARD JUDUL TERPISAH ==========
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         elevation = CardDefaults.cardElevation(6.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 14.dp, horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Text(
                                 text = "Histori Parkir • ${ui.name}",
                                 textAlign = TextAlign.Center,
@@ -111,8 +117,22 @@ private fun HistoryContent(ui: HistoryUiState) {
                                     fontWeight = FontWeight.SemiBold
                                 )
                             )
-                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
 
+                // ========== CARD TABEL (tanpa judul) ==========
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(6.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp)
+                        ) {
                             // Header row
                             Row(
                                 modifier = Modifier
@@ -120,16 +140,28 @@ private fun HistoryContent(ui: HistoryUiState) {
                                     .padding(vertical = 6.dp, horizontal = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Tanggal", fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.weight(1.1f))
-                                Text("Waktu", fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.weight(0.9f))
-                                Text("Lokasi Parkir", fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.weight(1.4f))
+                                Text(
+                                    "Tanggal",
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1.1f)
+                                )
+                                Text(
+                                    "Waktu",
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(0.9f)
+                                )
+                                Text(
+                                    "Lokasi Parkir",
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.weight(1.4f)
+                                )
                             }
                             Divider()
 
-                            // List data (scroll pada page — tidak nested scroll)
+                            // List data
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -142,9 +174,21 @@ private fun HistoryContent(ui: HistoryUiState) {
                                             .padding(vertical = 10.dp, horizontal = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(item.date, modifier = Modifier.weight(1.1f))
-                                        Text(item.time, modifier = Modifier.weight(0.9f))
-                                        Text(item.location, modifier = Modifier.weight(1.4f))
+                                        Text(
+                                            item.date,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.weight(1.1f)
+                                        )
+                                        Text(
+                                            item.time,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.weight(0.9f)
+                                        )
+                                        Text(
+                                            item.location,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.weight(1.4f)
+                                        )
                                     }
                                     Divider()
                                 }
@@ -153,6 +197,7 @@ private fun HistoryContent(ui: HistoryUiState) {
                     }
                 }
 
+                // gambar bawah
                 item {
                     Box(
                         modifier = Modifier
@@ -173,9 +218,17 @@ private fun HistoryContent(ui: HistoryUiState) {
 }
 
 /* ================= PREVIEW ================= */
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "History – Light")
-@Composable private fun PreviewHistoryLight() {
-    SmartParkingTheme {
+@Preview(
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO,
+    name = "History – Light"
+)
+@Composable
+private fun PreviewHistoryLight() {
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
         HistoryContent(
             HistoryUiState(
                 loading = false,

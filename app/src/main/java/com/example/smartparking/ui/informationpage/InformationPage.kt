@@ -241,14 +241,17 @@ private fun Bullet(text: String) {
 
 /* ---------- Previews ---------- */
 
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "Information – Light")
+@Preview(
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO,
+    name = "Information – Light"
+)
 @Composable
 private fun PreviewInformationLight() {
-    SmartParkingTheme(dynamicColor = false) { InformationPage() }
-}
-
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES, name = "Information – Dark")
-@Composable
-private fun PreviewInformationDark() {
-    SmartParkingTheme(darkTheme = true, dynamicColor = false) { InformationPage() }
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
+        InformationPage()
+    }
 }

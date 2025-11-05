@@ -62,7 +62,12 @@ fun HomePage(
     vm: HomePageViewModel = viewModel()
 ) {
     val parkingStatus by vm.parkingStatus
-    LaunchedEffect(Unit) { vm.fetchParkingStatus() }
+    val miniatureStatus by vm.miniatureStatus
+    LaunchedEffect(Unit) {
+        vm.fetchParkingStatus()
+        vm.fetchMiniatureStatus()
+    }
+
 
     // background gradasi
     val bg = remember {
@@ -119,16 +124,25 @@ fun HomePage(
         // Info slot
         item {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                InfoCard(
-                    title = "Slot Parkir Mobil di FT Saat Ini",
-                    textAlign = TextAlign.Center,
-                    totalSlots = parkingStatus.totalSlots,
-                    usedSlots = parkingStatus.usedSlots
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // card baru: khusus miniatur
+                    InfoCard(
+                        title = "Slot Parkir Miniatur FT",
+                        textAlign = TextAlign.Center,
+                        totalSlots = miniatureStatus.totalSlots,
+                        usedSlots = miniatureStatus.usedSlots
+                    )
+                    // card lama
+                    InfoCard(
+                        title = "Slot Parkir Mobil di FT Saat Ini",
+                        textAlign = TextAlign.Center,
+                        totalSlots = parkingStatus.totalSlots,
+                        usedSlots = parkingStatus.usedSlots
+                    )
+                }
             }
         }
 
@@ -215,6 +229,7 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.fillMaxWidth()) {
+
             // header
             Row(
                 Modifier
@@ -232,7 +247,25 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
                     modifier = Modifier.weight(1f)
                 )
             }
-            // rows
+
+            // >>> baris khusus miniatur (dummy 5 slot, nanti bisa diisi dari BE)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .border(0.5.dp, Color.LightGray)
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("P0", modifier = Modifier.weight(1f))
+                Text("Miniatur", modifier = Modifier.weight(2f))
+                Text(
+                    "5",                     // <<< taruh value dari BE di sini kalau nanti sudah ada
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // rows existing
             rows.forEach { p: ParkingLocation ->
                 Row(
                     Modifier
@@ -254,11 +287,15 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
     }
 }
 
+
 /* ==================== Preview ==================== */
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
 private fun PreviewHomePage() {
-    SmartParkingTheme {
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
         HomePage()
     }
 }

@@ -240,7 +240,10 @@ private fun LoginContent(
 )
 @Composable
 private fun PreviewLoginLight() {
-    SmartParkingTheme {
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
         LoginContent(
             ui = LoginUiState(
                 email = "barbara@ugm.ac.id",

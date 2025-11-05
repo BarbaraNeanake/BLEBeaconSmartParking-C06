@@ -55,6 +55,8 @@ import com.example.smartparking.ui.logoutpage.LogoutPage
 import com.example.smartparking.ui.signuppage.SignUpPage
 import com.example.smartparking.ui.theme.SmartParkingTheme
 import kotlinx.coroutines.launch
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 
 /* ========================== Routes ========================== */
 sealed class Screen(val route: String, val label: String) {
@@ -235,6 +237,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
+                            // isi utama: NavHost
                             NavHost(
                                 navController = navController,
                                 startDestination = if (session == null) Screen.Landing.route else Screen.Home.route,
@@ -314,6 +317,25 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     )
+                                }
+                            }
+                            if (isPrivate) {
+                                Surface(
+                                    tonalElevation = 3.dp,
+                                    shadowElevation = 6.dp,
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                                    shape = MaterialTheme.shapes.extraLarge,
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .padding(start = 12.dp, top = 12.dp)
+                                ) {
+                                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Menu,
+                                            contentDescription = "Menu",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }

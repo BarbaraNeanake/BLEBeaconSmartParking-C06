@@ -247,10 +247,17 @@ fun SignUpContent(
 }
 
 /* -------- PREVIEW -------- */
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "SignUp – Light")
+@Preview(
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO,
+    name = "SignUp – Light"
+)
 @Composable
 private fun PreviewSignUp() {
-    SmartParkingTheme {
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
         SignUpContent(
             ui = SignUpUiState(
                 name = "Barbara Neanake Ajiesti",

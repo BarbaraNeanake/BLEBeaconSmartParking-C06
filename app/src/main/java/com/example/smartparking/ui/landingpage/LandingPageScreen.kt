@@ -40,7 +40,6 @@ fun LandingPageScreen(
     brandColor: Color = SparkNavy,
     brandFont: FontFamily = FontFamily.SansSerif,
     subtitleFont: FontFamily = FontFamily.SansSerif,
-    // appName: String = "Smart Parking FT UGM"
 ) {
     val gradient = remember {
         Brush.verticalGradient(
@@ -74,7 +73,6 @@ fun LandingPageScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                // --- BRAND: SPARK (navy/black + font berbeda) ---
                 Text(
                     text = brandName,
                     textAlign = TextAlign.Center,
@@ -89,7 +87,6 @@ fun LandingPageScreen(
 
                 Spacer(Modifier.height(6.dp))
 
-                // --- Subtitle: Smart Parking FT UGM (font lain) ---
                 Text(
                     text = subTitle,
                     textAlign = TextAlign.Center,
@@ -107,7 +104,11 @@ fun LandingPageScreen(
 
 /* ============================== PREVIEWS ============================== */
 
-@Preview(name = "Landing – Navy", uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
+@Preview(
+    name = "Landing – Navy",
+    uiMode = Configuration.UI_MODE_NIGHT_NO,
+    showBackground = true
+)
 @Composable
 private fun PreviewLandingNavy() {
     SmartParkingTheme(darkTheme = false, dynamicColor = false) {
@@ -115,10 +116,14 @@ private fun PreviewLandingNavy() {
     }
 }
 
-@Preview(name = "Landing – Black", uiMode = Configuration.UI_MODE_NIGHT_YES, showBackground = true)
+@Preview(
+    name = "Landing – Black (still light)",
+    uiMode = Configuration.UI_MODE_NIGHT_NO,   // <— paksa light
+    showBackground = true
+)
 @Composable
 private fun PreviewLandingBlack() {
-    SmartParkingTheme(darkTheme = true, dynamicColor = false) {
+    SmartParkingTheme(darkTheme = false, dynamicColor = false) {  // <— paksa light
         LandingPageScreen(brandColor = SparkBlack)
     }
 }
