@@ -10,7 +10,7 @@ import com.example.smartparking.data.repository.dao.SessionDao
 import retrofit2.Response
 
 class UserRepository(
-    private val sessionDao: SessionDao    // ✅ tambahkan ini
+    private val sessionDao: SessionDao
 ) {
     suspend fun getUsers(): List<User> =
         RetrofitProvider.userApi.getUsers()
@@ -33,9 +33,13 @@ class UserRepository(
         val resp = response.body()!!
         val u = resp.user
 
+        if (u.userId == null) {
+            throw Exception("Login gagal: userId dari server kosong")
+        }
+
         val session = SessionEntity(
             token = resp.token,
-            userId = u.userID,
+            userId = u.userId,
             name = u.nama,
             email = u.email,
             role = u.roles

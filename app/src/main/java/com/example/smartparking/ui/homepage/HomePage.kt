@@ -29,6 +29,7 @@ import com.example.smartparking.R
 import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
+import kotlinx.coroutines.delay
 
 // ---------- Data tabel ----------
 data class ParkingLocation(
@@ -61,15 +62,21 @@ private val parkingLocations: List<ParkingLocation> = listOf(
 fun HomePage(
     vm: HomePageViewModel = viewModel()
 ) {
-    val parkingStatus by vm.parkingStatus
-    val miniatureStatus by vm.miniatureStatus
+    val parkingStatus by vm.parkingStatus.collectAsState()
+    val miniatureStatus by vm.miniatureStatus.collectAsState()
+
+    // Auto-refresh setiap 10 detik
     LaunchedEffect(Unit) {
         vm.fetchParkingStatus()
         vm.fetchMiniatureStatus()
+        while (true) {
+            delay(10_000L)
+            vm.fetchParkingStatus()
+            vm.fetchMiniatureStatus()
+        }
     }
 
-
-    // background gradasi
+    // Background gradasi
     val bg = remember {
         Brush.verticalGradient(
             listOf(
@@ -128,19 +135,17 @@ fun HomePage(
                 contentAlignment = Alignment.Center
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // card baru: khusus miniatur
+                    // Miniatur FT
                     InfoCard(
                         title = "Slot Parkir Miniatur FT",
-                        textAlign = TextAlign.Center,
-                        totalSlots = miniatureStatus.totalSlots,
-                        usedSlots = miniatureStatus.usedSlots
-                    )
-                    // card lama
-                    InfoCard(
-                        title = "Slot Parkir Mobil di FT Saat Ini",
-                        textAlign = TextAlign.Center,
                         totalSlots = parkingStatus.totalSlots,
                         usedSlots = parkingStatus.usedSlots
+                    )
+                    // Seluruh FT
+                    InfoCard(
+                        title = "Slot Parkir Mobil di FT Saat Ini",
+                        totalSlots = miniatureStatus.totalSlots,
+                        usedSlots = miniatureStatus.usedSlots
                     )
                 }
             }
@@ -166,13 +171,13 @@ fun HomePage(
 
         // Tabel kapasitas
         item {
-            ParkingTable(parkingLocations)
+            ParkingTable(rows = parkingLocations, miniatureStatus = miniatureStatus)
         }
     }
 }
 
 @Composable
-private fun InfoCard(title: String, totalSlots: Int, usedSlots: Int, textAlign: TextAlign) {
+private fun InfoCard(title: String, totalSlots: Int, usedSlots: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -222,7 +227,7 @@ private fun VerticalDivider() {
 }
 
 @Composable
-private fun ParkingTable(rows: List<ParkingLocation>) {
+private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingStatus) {
     Card(
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(4.dp),
@@ -230,7 +235,7 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
     ) {
         Column(Modifier.fillMaxWidth()) {
 
-            // header
+            // Header
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -248,7 +253,7 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
                 )
             }
 
-            // >>> baris khusus miniatur (dummy 5 slot, nanti bisa diisi dari BE)
+            // Baris khusus miniatur (dinamis)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -259,14 +264,14 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
                 Text("P0", modifier = Modifier.weight(1f))
                 Text("Miniatur", modifier = Modifier.weight(2f))
                 Text(
-                    "5",                     // <<< taruh value dari BE di sini kalau nanti sudah ada
+                    (miniatureStatus.totalSlots - miniatureStatus.usedSlots).toString(),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            // rows existing
-            rows.forEach { p: ParkingLocation ->
+            // Rows existing
+            rows.forEach { p ->
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -286,7 +291,6 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
         }
     }
 }
-
 
 /* ==================== Preview ==================== */
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)

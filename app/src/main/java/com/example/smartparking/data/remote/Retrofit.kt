@@ -6,6 +6,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import com.example.smartparking.BuildConfig
+import com.example.smartparking.data.remote.PelanggaranApiService
 
 object RetrofitProvider {
 
@@ -18,11 +19,13 @@ object RetrofitProvider {
     }
 
     val retrofit = Retrofit.Builder()
-        .baseUrl(BuildConfig.BASE_URL) // ganti sesuai server kamu
+        .baseUrl(BuildConfig.BASE_URL)
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create()) // ✅ pakai GSON
+        .addConverterFactory(GsonConverterFactory.create())
         .build()
 
     val userApi: UserApiService by lazy { retrofit.create(UserApiService::class.java) }
     val parkingApi: ParkingApiService by lazy { retrofit.create(ParkingApiService::class.java) }
+    val logActivityApi: LogActivityApiService by lazy { retrofit.create(LogActivityApiService::class.java) }
+    val pelanggaranApi: PelanggaranApiService = retrofit.create(PelanggaranApiService::class.java)
 }

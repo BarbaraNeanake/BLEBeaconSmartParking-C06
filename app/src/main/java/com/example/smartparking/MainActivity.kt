@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
@@ -58,6 +59,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.example.smartparking.ui.pelanggaranpage.PelanggaranPage
+import com.example.smartparking.ui.pelanggaranpage.PelanggaranVMFactory
+import com.example.smartparking.ui.pelanggaranpage.PelanggaranViewModel
 
 /* ========================== Routes ========================== */
 sealed class Screen(val route: String, val label: String) {
@@ -93,7 +96,10 @@ class MainActivity : ComponentActivity() {
                 val session by sessionFlow.collectAsStateWithLifecycle(initialValue = null)
 
                 // Init TokenProvider (untuk AuthInterceptor)
-                LaunchedEffect(Unit) { TokenProvider.init(db.sessionDao()) }
+                LaunchedEffect(Unit) {
+                    TokenProvider.init(db.sessionDao())
+                    Log.d("MainActivity", "SessionDao TokenProvider: ${db.sessionDao().hashCode()}")
+                }
 
                 // Drawer hanya aktif di private routes
                 val privateRoutes = remember {
@@ -169,18 +175,17 @@ class MainActivity : ComponentActivity() {
                 // ---------------- Bridge BLE → Parking update ----------------
                 val liveVm: LiveParkingViewModel = viewModel(factory = LiveParkingVMFactory(db.sessionDao()))
                 val userId: Int? = session?.userId
-                val userRole: String? = session?.role
 
                 val api = remember { com.example.smartparking.data.repository.UserRepository(db.sessionDao()) }
                 val vm: EditPassViewModel = viewModel(factory = EditPassVMFactory(api))
 
-                LaunchedEffect(Unit) {
-                    // Ketika slot terdeteksi, update DB lalu reload warna
-                    beaconVm.detectedSlot.collect { slotId ->
-                        liveVm.applyBeaconDetection(slotId)
-                    }
-
-                }
+//                LaunchedEffect(Unit) {
+//                    // Ketika slot terdeteksi, update DB lalu reload warna
+//                    beaconVm.detectedSlot.collect { slotId ->
+//                        liveVm.applyBeaconDetection(slotId)
+//                    }
+//
+//                }
 
                 // ---------------- UI scaffold + Navigation ----------------
                 ModalNavigationDrawer(
@@ -295,16 +300,27 @@ class MainActivity : ComponentActivity() {
                                 }
                                 composable(Screen.Live.route) {
                                     // pakai liveVm yang sama (satu instance di activity scope)
-                                    LiveParkingPage(vm = liveVm)
+                                    LiveParkingPage(vm = liveVm, beaconVM = beaconVm, currentUserId = userId)
                                 }
                                 composable(Screen.History.route) {
-                                    HistoryPage()
+                                    val logRepo = remember {
+                                        com.example.smartparking.data.repository.LogActivityRepository(
+                                            com.example.smartparking.data.remote.RetrofitProvider.logActivityApi
+                                        )
+                                    }
+                                    HistoryPage(
+                                        logRepository = logRepo,
+                                        sessionDao = db.sessionDao()
+                                    )
                                 }
                                 composable(Screen.Info.route) {
                                     InformationPage()
                                 }
                                 composable("pelanggaran") {
-                                    PelanggaranPage()
+                                    val pelanggaranVm: PelanggaranViewModel = viewModel(
+                                        factory = PelanggaranVMFactory(db.sessionDao())
+                                    )
+                                    PelanggaranPage(vm = pelanggaranVm)
                                 }
                                 composable(Screen.Logout.route) {
                                     val userRepo = remember { UserRepository(db.sessionDao()) }
@@ -331,7 +347,7 @@ class MainActivity : ComponentActivity() {
                                     shape = MaterialTheme.shapes.extraLarge,
                                     modifier = Modifier
                                         .align(Alignment.TopStart)
-                                        .padding(start = 12.dp, top = 12.dp)
+                                        .padding(start = 20.dp, top = 45.dp)
                                 ) {
                                     IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                         Icon(

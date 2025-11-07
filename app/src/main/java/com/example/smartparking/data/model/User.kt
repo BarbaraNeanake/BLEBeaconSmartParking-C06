@@ -1,11 +1,26 @@
 package com.example.smartparking.data.model
 
+import com.google.gson.annotations.SerializedName
+
 data class User(
-    val userID: Int? = null,
+    @SerializedName("userid")
+    val userId: Int? = null,
+
+    @SerializedName("nama")
     val nama: String,
+
+    @SerializedName("roles")
     val roles: String,
-    val license: String,
+
+    @SerializedName("license")
+    val license: String? = null,
+
+    @SerializedName("email")
     val email: String,
-    val birthdate: String,
-    val password: String
+
+    @SerializedName("password")
+    val password: String? = null,
+
+    @SerializedName("status_user")
+    val status: String? = null
 )

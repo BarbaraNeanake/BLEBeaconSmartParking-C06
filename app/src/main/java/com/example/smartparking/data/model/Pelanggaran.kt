@@ -1,8 +1,9 @@
 package com.example.smartparking.data.model
 
 data class Pelanggaran(
-    val numPel: Int,
+    val num_pelanggaran: Int?,
     val userid: Int?,
-    val numPark: Int?,
-    val typePel: String
+    val nomor: Int?,
+    val jenis_pelanggaran: String?,
+    val created_at: String?
 )
