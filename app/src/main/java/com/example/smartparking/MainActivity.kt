@@ -57,6 +57,7 @@ import com.example.smartparking.ui.theme.SmartParkingTheme
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
+import com.example.smartparking.ui.pelanggaranpage.PelanggaranPage
 
 /* ========================== Routes ========================== */
 sealed class Screen(val route: String, val label: String) {
@@ -301,6 +302,9 @@ class MainActivity : ComponentActivity() {
                                 }
                                 composable(Screen.Info.route) {
                                     InformationPage()
+                                }
+                                composable("pelanggaran") {
+                                    PelanggaranPage()
                                 }
                                 composable(Screen.Logout.route) {
                                     val userRepo = remember { UserRepository(db.sessionDao()) }

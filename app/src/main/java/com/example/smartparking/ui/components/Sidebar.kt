@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
@@ -50,7 +51,9 @@ fun DrawerContent(
         DrawerItem("Live Parking Map", "live_parking", Icons.Outlined.Map),
         DrawerItem("History", "history", Icons.Outlined.History),
         DrawerItem("Information", "information", Icons.Outlined.Info),
-        DrawerItem("Logout", "logout", Icons.Outlined.PowerSettingsNew)
+        DrawerItem("Logout", "logout", Icons.Outlined.PowerSettingsNew),
+        DrawerItem(label="Pelanggaran", "pelanggaran", Icons.Outlined.Campaign)
+
     )
     
 
