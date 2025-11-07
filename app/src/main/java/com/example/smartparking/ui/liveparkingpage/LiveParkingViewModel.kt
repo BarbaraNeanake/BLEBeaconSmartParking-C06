@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.smartparking.data.model.Parking
 import com.example.smartparking.data.remote.RetrofitProvider
+import com.example.smartparking.data.repository.LogActivityRepository
 import com.example.smartparking.data.repository.ParkingRepository
 import com.example.smartparking.data.repository.dao.SessionDao
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,7 +13,8 @@ import kotlinx.coroutines.launch
 
 class LiveParkingViewModel(
     private val repo: ParkingRepository = ParkingRepository(RetrofitProvider.parkingApi),
-    private val sessionDao : SessionDao
+    private val sessionDao: SessionDao,
+    private val logRepo: LogActivityRepository = LogActivityRepository(RetrofitProvider.logActivityApi)
 ) : ViewModel() {
 
     private val _loading = MutableStateFlow(false)
@@ -21,22 +23,23 @@ class LiveParkingViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    /** peta: slotId ("S1", "S2") -> "occupied"/"available"/"disabled_slot" */
+    /** Map slotId ("S1", "S2") -> status ("occupied"/"available") */
     private val _statusById = MutableStateFlow<Map<String, String>>(emptyMap())
     val statusById: StateFlow<Map<String, String>> = _statusById
 
-    /** cache mapping untuk mempercepat lookup */
+    /** cache slotId -> nomor */
     private var cacheSlotToNomor: Map<String, Int> = emptyMap()
 
-
     private var releaseJob: kotlinx.coroutines.Job? = null
-    private val releaseDelayMs = 15_000L // 15 detik grace period
+    private val releaseDelayMs = 15_000L
 
     private var lastOccupiedSlotId: String? = null
 
-    init { reload() }
+    init {
+        reload()
+    }
 
-    /** Ambil semua data & bangun peta status + cache slot->nomor */
+    /** 🔹 Ambil semua data & bangun peta status + cache slot->nomor */
     fun reload() {
         if (_loading.value) return
         viewModelScope.launch {
@@ -46,16 +49,16 @@ class LiveParkingViewModel(
                 val resp = repo.getParkings()
                 if (!resp.isSuccessful) throw Exception("HTTP ${resp.code()} ${resp.message()}")
 
-                val rows: List<Parking> = resp.body().orEmpty()
+                val rows = resp.body().orEmpty()
 
-                // Bangun statusById (slotId akan diambil dari row.lokasi atau fallback S{nomor})
-                val statusMap: Map<String, String> = rows.associate { row: Parking ->
+                // Build map status
+                val statusMap = rows.associate { row ->
                     val id = extractSlotId(row.lokasi) ?: "S${row.nomor}"
                     id to (row.status?.lowercase() ?: "available")
                 }
                 _statusById.value = statusMap
 
-                // Cache slotId -> nomor untuk update cepat
+                // Build cache slotId->nomor
                 cacheSlotToNomor = rows.mapNotNull { r ->
                     val id = extractSlotId(r.lokasi) ?: "S${r.nomor}"
                     val nomor = r.nomor
@@ -71,63 +74,71 @@ class LiveParkingViewModel(
     }
 
     /**
-     * Dipanggil saat Beacon mendeteksi slot: "S3", "S1", dst.
-     * - Free slot lama (jika ada)
-     * - Occupy slot baru
-     * - Refresh status
+     * 🔹 Dipanggil saat Beacon mendeteksi slot baru
+     *  - Update slot lama jadi available
+     *  - Update slot baru jadi occupied
+     *  - Catat log aktivitas user
      */
     fun applyBeaconDetection(slotId: String?, currentUserIdOverride: Int? = null) {
         val id = slotId?.trim()?.takeIf {
             it.isNotEmpty() && !it.equals("Belum terdeteksi", true)
         } ?: return
 
-        // Hindari spam (tidak usah update kalau slot sama)
-        if (id == lastOccupiedSlotId) return
+        if (id == lastOccupiedSlotId) return // Hindari spam deteksi slot sama
+
+        println("Detect slot $id dengan tipe data ${id::class.simpleName}")
 
         viewModelScope.launch {
             try {
-                // 1️⃣ Ambil data user aktif dari session
                 val sess = sessionDao.getSessionOnce()
-                val userId = currentUserIdOverride ?: when (val v = sess?.userId) {
-                    is Int -> v
-                    is Long -> v.toInt()
-                    else -> null
-                }
-                val role = sess?.role
+                val userId = currentUserIdOverride ?: sess?.userId
 
-                // 2️⃣ Jika sebelumnya ada slot yang ditempati
+                if (userId == null) {
+                    _error.value = "User belum login"
+                    return@launch
+                }
+
+                // 🔸 Jika sebelumnya ada slot yang ditempati
                 lastOccupiedSlotId?.let { oldSlotId ->
-                    // Update slot lama jadi available
                     updateSlotStatus(
                         slotId = oldSlotId,
                         status = "available",
-                        userId = null,
-                        rolesUser = null
+                        userId = null
                     )
 
-                    // Update UI langsung (optimistik)
+                    // Log bahwa user keluar dari slot (moving)
+                    logUserActivity(
+                        userId = userId,
+                        area = "in_area",
+                        status = "moving",
+                        slotId = oldSlotId
+                    )
+
                     _statusById.value = _statusById.value.toMutableMap().apply {
                         this[oldSlotId] = "available"
                     }
                 }
 
-                // 3️⃣ Update slot baru jadi occupied
+                // 🔸 Update slot baru jadi occupied
                 updateSlotStatus(
                     slotId = id,
                     status = "occupied",
-                    userId = userId,
-                    rolesUser = role
+                    userId = userId
                 )
 
-                // Update UI langsung (optimistik)
+                // Log bahwa user sedang parkir
+                logUserActivity(
+                    userId = userId,
+                    area = id,
+                    status = "parking",
+                    slotId = id
+                )
+
                 _statusById.value = _statusById.value.toMutableMap().apply {
                     this[id] = "occupied"
                 }
 
-                // 4️⃣ Simpan slot terakhir
                 lastOccupiedSlotId = id
-
-                // 5️⃣ Refresh data dari server untuk sinkronisasi
                 reload()
 
             } catch (e: Exception) {
@@ -136,43 +147,51 @@ class LiveParkingViewModel(
         }
     }
 
+    /** 🔹 Catat aktivitas user ke backend */
+    private suspend fun logUserActivity(
+        userId: Int,
+        area: String,
+        status: String,
+        slotId: String? = null
+    ) {
+        try {
+            // Reload cache jika kosong (antisipasi race condition)
+            if (cacheSlotToNomor.isEmpty()) reload()
 
-    private fun optimisticSwitch(oldId: String?, newId: String) {
-        val m = _statusById.value.toMutableMap()
-        oldId?.let { if (m.containsKey(it)) m[it] = "available" }
-        m[newId] = "occupied"
-        _statusById.value = m
-    }
+            // Gunakan slotId sebagai referensi pencarian nomor
+            val slotKey = slotId ?: area
+            val nomorFromCache = cacheSlotToNomor[slotKey]
+            val nomor = nomorFromCache ?: findNomorByLokasi(slotKey)
 
-    private fun scheduleReleaseIfIdle() {
-        if (releaseJob?.isActive == true) return
-        val oldId = lastOccupiedSlotId ?: return
-        releaseJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(releaseDelayMs)
-            // Setelah 15 dtk tetap tidak ada deteksi, rilis slot lama
-            try {
-                updateSlotStatus(oldId, status = "available", userId = null, rolesUser = null)
-            } catch (_: Exception) { /* log kalau perlu */ }
-            lastOccupiedSlotId = null
-            // Optimistik: set hijau di UI
-            val m = _statusById.value.toMutableMap()
-            m[oldId] = "available"
-            _statusById.value = m
+            val resp = logRepo.sendLog(
+                userid = userId,
+                area = area,
+                status = status
+            )
+
+            if (!resp.isSuccessful) {
+                println("⚠️ Gagal mencatat aktivitas: ${resp.code()} ${resp.message()}")
+            } else {
+                println("✅ Log aktivitas terkirim: $status di $area (nomor=$nomor)")
+            }
+        } catch (e: Exception) {
+            println("⚠️ Error kirim log aktivitas: ${e.localizedMessage}")
         }
     }
 
-    private fun cancelRelease() {
-        releaseJob?.cancel()
-        releaseJob = null
-    }
-
-    // ====== Sudah kamu punya, tambahkan rolesUser ======
-    private suspend fun updateSlotStatus(slotId: String, status: String, userId: Int?, rolesUser: String?) {
+    /** 🔹 Update status slot di database */
+    private suspend fun updateSlotStatus(
+        slotId: String,
+        status: String,
+        userId: Int?
+    ) {
         var nomor: Int? = cacheSlotToNomor[slotId]
         if (nomor == null) {
             nomor = findNomorByLokasi(slotId)
             if (nomor != null) {
-                cacheSlotToNomor = cacheSlotToNomor.toMutableMap().apply { put(slotId, nomor!!) }
+                cacheSlotToNomor = cacheSlotToNomor.toMutableMap().apply {
+                    put(slotId, nomor!!)
+                }
             }
         }
         requireNotNull(nomor) { "Slot $slotId tidak ditemukan di database" }
@@ -180,14 +199,15 @@ class LiveParkingViewModel(
         val resp = repo.updateParking(
             nomor = nomor!!,
             status = status,
-            userID = userId,
-            rolesUser = rolesUser
+            userID = userId
         )
+
         if (!resp.isSuccessful) {
             throw Exception("Update slot $slotId gagal: ${resp.code()} ${resp.message()}")
         }
     }
 
+    /** 🔹 Cari nomor slot dari lokasi di DB */
     private suspend fun findNomorByLokasi(slotId: String): Int? {
         val resp = repo.getParkings()
         if (!resp.isSuccessful) return null
@@ -201,15 +221,15 @@ class LiveParkingViewModel(
         return null
     }
 
+    /** 🔹 Ekstrak SlotId dari lokasi (misal: "Slot S1" → "S1") */
     private fun extractSlotId(lokasi: String?): String? {
         if (lokasi.isNullOrBlank()) return null
         val rx = Regex("""\b([SD]\d+|S\d+)\b""", RegexOption.IGNORE_CASE)
         return rx.find(lokasi)?.value?.uppercase()
     }
 
-    // LiveParkingViewModel.kt
+    /** 🔹 Untuk debug manual (developer button) */
     fun forceOccupySlotForDebug(slotId: String, userIdOverride: Int? = null) {
         applyBeaconDetection(slotId, currentUserIdOverride = userIdOverride)
     }
-
 }

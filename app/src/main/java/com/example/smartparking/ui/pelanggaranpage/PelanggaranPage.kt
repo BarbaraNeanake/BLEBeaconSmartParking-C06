@@ -31,7 +31,7 @@ import com.example.smartparking.ui.theme.SmartParkingTheme
 
 @Composable
 fun PelanggaranPage(
-    vm: PelanggaranViewModel = viewModel()
+    vm: PelanggaranViewModel
 ) {
     val ui by vm.uiState.collectAsState()
 
@@ -87,6 +87,7 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
 
         when {
             ui.loading -> {
+                // loading spinner
                 item {
                     Box(
                         modifier = Modifier
@@ -100,15 +101,18 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
             }
 
             ui.error != null -> {
+                // ✅ tampilkan pesan “tidak ada pelanggaran” juga di sini
                 item {
                     Text(
-                        text = "Error: ${ui.error}",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
+                        text = ui.error ?: "-",
+                        color = if (ui.error?.contains("tidak ada", true) == true)
+                            Color.Gray else MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(20.dp)
                     )
                 }
             }
+
 
             else -> {
                 // CARD JUDUL

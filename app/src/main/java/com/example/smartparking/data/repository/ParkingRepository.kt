@@ -29,8 +29,8 @@ class ParkingRepository(
     }
 
     // PATCH /parking/:nomor
-    suspend fun updateParking(nomor: Int, status: String, userID: Int?, rolesUser: String?): Response<Parking> {
-        val UpdateParkingRequest_data = UpdateParkingRequest(status = status, userID, rolesUser= rolesUser)
+    suspend fun updateParking(nomor: Int, status: String, userID: Int?): Response<Parking> {
+        val UpdateParkingRequest_data = UpdateParkingRequest(status = status, userID)
         return apiService.updateParking(nomor, UpdateParkingRequest_data)
     }
 }

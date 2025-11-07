@@ -78,7 +78,7 @@ class BeaconViewModel : ViewModel() {
 
     init {
         // Jadwalkan estimasi pertama setelah interval, lalu berulang
-        startRollingEstimation()
+//        startRollingEstimation()
     }
 
     @SuppressLint("MissingPermission")

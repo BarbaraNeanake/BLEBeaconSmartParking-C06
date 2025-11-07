@@ -6,8 +6,7 @@ import retrofit2.http.*
 
 data class UpdateParkingRequest(
     val status: String,      // "occupied" | "available" | "disabled_slot"
-    val userid: Int? = null,  // null saat free
-    val rolesUser: String? = null
+    val userid: Int? = null
 )
 
 interface ParkingApiService {

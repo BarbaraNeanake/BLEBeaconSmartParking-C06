@@ -158,6 +158,10 @@ fun LiveParkingPage(
                 }
                 else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
             }
+
+            DeveloperBar(
+                onPick = { id -> vm.forceOccupySlotForDebug(id) }
+            )
         }
     }
 }
@@ -258,17 +262,55 @@ private fun sampleLot(@DrawableRes mapRes: Int): Lot {
 
 @Composable
 private fun DeveloperBar(
-    onPick: (String) -> Unit
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = Modifier
+    var lastAction by remember { mutableStateOf("Belum ada aksi") }
+    var lastColor by remember { mutableStateOf(Color.Gray) }
+
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .padding(top = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(top = 16.dp)
+            .background(Color(0xFFEFF1F5), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        listOf("S1","S2","S3","S4","S5").forEach { id ->
-            Button(onClick = { onPick(id) }) { Text(id) }
+        Text(
+            text = "🧪 Developer Debug Panel",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            listOf("Gate_In", "S1", "S2", "S3", "S4", "S5", "Gate_Out").forEach { id ->
+                Button(
+                    onClick = {
+                        onPick(id)
+                        lastAction = "Aksi: $id dikirim"
+                        lastColor = Color(0xFF2196F3)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(id, fontSize = 12.sp)
+                }
+            }
         }
+
+        Spacer(Modifier.height(10.dp))
+
+        Text(
+            text = lastAction,
+            color = lastColor,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+        )
     }
 }
+
 
