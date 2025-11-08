@@ -10,6 +10,15 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/i2c.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "esp_http_server.h"
+#include "esp_netif.h"
+
+// WiFi credentials
+#define WIFI_SSID "Waifai"
+#define WIFI_PASS "123654987"
 
 static const char *TAG = "ESP32CAM_TEST";
 
@@ -309,6 +318,181 @@ esp_err_t init_ledc_for_camera(void) {
     return ESP_OK;
 }
 
+// WiFi event handler
+static void wifi_event_handler(void* arg, esp_event_base_t event_base,
+                                int32_t event_id, void* event_data)
+{
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+        esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        ESP_LOGI(TAG, "WiFi disconnected, retrying...");
+        esp_wifi_connect();
+    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        ESP_LOGI(TAG, "Got IP Address: " IPSTR, IP2STR(&event->ip_info.ip));
+    }
+}
+
+esp_err_t init_wifi(void) {
+    ESP_LOGI(TAG, "Initializing WiFi...");
+    
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    esp_event_handler_instance_t instance_any_id;
+    esp_event_handler_instance_t instance_got_ip;
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        &instance_any_id));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
+                                                        IP_EVENT_STA_GOT_IP,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        &instance_got_ip));
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASS,
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "WiFi initialization finished. Connecting to %s...", WIFI_SSID);
+    
+    return ESP_OK;
+}
+
+// HTTP GET Handler for root
+static esp_err_t index_handler(httpd_req_t *req)
+{
+    const char* html = 
+        "<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<title>ESP32-CAM Stream</title>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<style>"
+        "body { font-family: Arial; text-align: center; margin: 20px; background: #f0f0f0; }"
+        "h1 { color: #333; }"
+        "img { max-width: 100%; height: auto; border: 2px solid #333; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }"
+        ".container { background: white; padding: 20px; border-radius: 10px; max-width: 800px; margin: 0 auto; }"
+        ".info { color: #666; margin: 10px 0; }"
+        "button { background: #4CAF50; color: white; padding: 10px 20px; border: none; "
+        "border-radius: 5px; cursor: pointer; margin: 5px; font-size: 16px; }"
+        "button:hover { background: #45a049; }"
+        "</style>"
+        "</head>"
+        "<body>"
+        "<div class='container'>"
+        "<h1>ESP32-CAM Live Stream</h1>"
+        "<p class='info'>Camera: OV2640 | Resolution: QVGA (320x240) | Format: JPEG</p>"
+        "<img id='stream' src='/stream' />"
+        "<br><br>"
+        "<button onclick='location.reload()'>Refresh</button>"
+        "<button onclick='capture()'>Capture</button>"
+        "<p class='info' id='status'>Stream Active</p>"
+        "</div>"
+        "<script>"
+        "function capture() {"
+        "  document.getElementById('status').textContent = 'Capturing...';"
+        "  fetch('/capture').then(() => {"
+        "    document.getElementById('stream').src = '/stream?' + new Date().getTime();"
+        "    document.getElementById('status').textContent = 'Captured!';"
+        "    setTimeout(() => document.getElementById('status').textContent = 'Stream Active', 2000);"
+        "  });"
+        "}"
+        "</script>"
+        "</body>"
+        "</html>";
+    
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, html, strlen(html));
+}
+
+// HTTP GET Handler for camera stream
+static esp_err_t stream_handler(httpd_req_t *req)
+{
+    camera_fb_t *fb = NULL;
+    esp_err_t res = ESP_OK;
+    
+    fb = esp_camera_fb_get();
+    if (!fb) {
+        ESP_LOGE(TAG, "Camera capture failed");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "image/jpeg");
+    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+    
+    res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    
+    esp_camera_fb_return(fb);
+    
+    return res;
+}
+
+// HTTP GET Handler for single capture
+static esp_err_t capture_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Capture requested");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, "OK", 2);
+}
+
+httpd_handle_t start_webserver(void)
+{
+    httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.server_port = 80;
+    config.ctrl_port = 32768;
+    config.max_open_sockets = 7;
+    config.lru_purge_enable = true;
+
+    ESP_LOGI(TAG, "Starting web server on port: '%d'", config.server_port);
+    if (httpd_start(&server, &config) == ESP_OK) {
+        httpd_uri_t index_uri = {
+            .uri       = "/",
+            .method    = HTTP_GET,
+            .handler   = index_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &index_uri);
+
+        httpd_uri_t stream_uri = {
+            .uri       = "/stream",
+            .method    = HTTP_GET,
+            .handler   = stream_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &stream_uri);
+
+        httpd_uri_t capture_uri = {
+            .uri       = "/capture",
+            .method    = HTTP_GET,
+            .handler   = capture_handler,
+            .user_ctx  = NULL
+        };
+        httpd_register_uri_handler(server, &capture_uri);
+
+        return server;
+    }
+
+    ESP_LOGI(TAG, "Error starting server!");
+    return NULL;
+}
+
 esp_err_t init_camera(void) {
     ESP_LOGI(TAG, "Initializing camera...");
     
@@ -465,13 +649,21 @@ void test_sensor_settings(void) {
 }
 
 void app_main(void) {
+    // Initialize NVS (required for WiFi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    
     // Print system information
     print_system_info();
     
     // Print camera configuration
     print_camera_config();
     
-    // Initialize camera
+    // Initialize camera first
     esp_err_t err = init_camera();
     
     if (err != ESP_OK) {
@@ -484,42 +676,36 @@ void app_main(void) {
         ESP_LOGE(TAG, "  4. esp32-camera library is installed");
         ESP_LOGE(TAG, "========================================");
         
-        // Blink error pattern
         while(1) {
             ESP_LOGE(TAG, "Camera initialization failed. Retrying in 10 seconds...");
             vTaskDelay(pdMS_TO_TICKS(10000));
         }
     }
     
-    // Test sensor settings
-    test_sensor_settings();
+    ESP_LOGI(TAG, "Camera initialized successfully!");
     
-    // Continuous capture test
-    ESP_LOGI(TAG, "Starting continuous capture test...");
-    ESP_LOGI(TAG, "Capturing frames every 5 seconds...");
+    // Initialize WiFi
+    init_wifi();
     
-    int frame_count = 0;
+    // Wait for WiFi connection
+    ESP_LOGI(TAG, "Waiting for WiFi connection...");
+    vTaskDelay(pdMS_TO_TICKS(5000));
     
+    // Start web server
+    httpd_handle_t server = start_webserver();
+    
+    if (server) {
+        ESP_LOGI(TAG, "========================================");
+        ESP_LOGI(TAG, "WEB SERVER STARTED!");
+        ESP_LOGI(TAG, "Open your browser and go to:");
+        ESP_LOGI(TAG, "http://<ESP32_IP_ADDRESS>/");
+        ESP_LOGI(TAG, "Check the IP address in the logs above");
+        ESP_LOGI(TAG, "========================================");
+    }
+    
+    // Keep running
     while(1) {
-        frame_count++;
-        
-        ESP_LOGI(TAG, "\n>>> Frame #%d | Free heap: %lu bytes | Uptime: %llu ms", 
-                 frame_count,
-                 esp_get_free_heap_size(),
-                 esp_timer_get_time() / 1000);
-        
-        // Capture and display frame info
-        esp_err_t capture_result = test_camera_capture();
-        
-        if (capture_result != ESP_OK) {
-            ESP_LOGE(TAG, "Frame capture failed!");
-        }
-        
-        // Memory health check
-        if (esp_get_free_heap_size() < 50000) {
-            ESP_LOGW(TAG, "WARNING: Low heap memory!");
-        }
-        
-        vTaskDelay(pdMS_TO_TICKS(5000)); // Capture every 5 seconds
+        vTaskDelay(pdMS_TO_TICKS(10000));
+        ESP_LOGI(TAG, "Server running... Free heap: %lu bytes", esp_get_free_heap_size());
     }
 }
