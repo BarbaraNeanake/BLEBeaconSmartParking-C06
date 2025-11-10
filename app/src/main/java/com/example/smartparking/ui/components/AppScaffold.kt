@@ -33,7 +33,6 @@ fun AppScaffold(
                 selectedRoute = selectedRoute,
                 onItemClick = { route ->
                     scope.launch {
-                        // ⬇️ TUTUP TANPA ANIMASI agar tidak kehilangan density saat navigate
                         drawerState.snapTo(DrawerValue.Closed)
                         onNavigate(route)
                     }

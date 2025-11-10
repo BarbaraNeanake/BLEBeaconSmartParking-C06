@@ -39,7 +39,6 @@ fun LoginPage(
 ) {
     val ui = vm.uiState.collectAsStateWithLifecycle().value
 
-    // Jika login sukses, navigate
     LaunchedEffect(ui.isLoggedIn) {
         if (ui.isLoggedIn) onLoginSuccess()
 
@@ -68,7 +67,6 @@ private fun LoginContent(
     onSignUpClick: () -> Unit,
     onForgotPasswordClick: () -> Unit
 ) {
-    // background: soft gradient (bukan merah)
     val gradient = remember {
         Brush.verticalGradient(
             listOf(
@@ -85,12 +83,11 @@ private fun LoginContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // ===== Header (logo + SPARK + subtitle), diturunin sedikit =====
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(top = 32.dp),        // turunin posisinya
+                .padding(top = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
@@ -106,7 +103,7 @@ private fun LoginContent(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.ExtraBold
                 ),
-                color = Color(0xFF0A2342),          // navy
+                color = Color(0xFF0A2342),
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(2.dp))
@@ -120,7 +117,6 @@ private fun LoginContent(
             )
         }
 
-        // ===== Card form =====
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -180,13 +176,12 @@ private fun LoginContent(
                     Text(
                         "Forgot Password ?",
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onForgotPasswordClick() } // → EditPassPage
+                        modifier = Modifier.clickable { onForgotPasswordClick() }
                     )
                 }
 
                 Spacer(Modifier.height(12.dp))
 
-                // Primary action
                 Button(
                     onClick = {
                         onLoginClick()
@@ -207,7 +202,6 @@ private fun LoginContent(
                     }
                 }
 
-                // Tonjolkan Sign Up (secondary full-width)
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onSignUpClick,
@@ -232,7 +226,6 @@ private fun LoginContent(
     }
 }
 
-/* ======= PREVIEWS ======= */
 @Preview(
     showBackground = true,
     name = "Login – Light",

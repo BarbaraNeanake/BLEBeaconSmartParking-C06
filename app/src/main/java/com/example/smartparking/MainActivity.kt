@@ -61,8 +61,9 @@ import androidx.compose.ui.unit.dp
 import com.example.smartparking.ui.pelanggaranpage.PelanggaranPage
 import com.example.smartparking.ui.pelanggaranpage.PelanggaranVMFactory
 import com.example.smartparking.ui.pelanggaranpage.PelanggaranViewModel
+import com.example.smartparking.ui.signuppage.SignUpVMFactory
+import com.example.smartparking.ui.signuppage.SignUpViewModel
 
-/* ========================== Routes ========================== */
 sealed class Screen(val route: String, val label: String) {
     data object Landing  : Screen("landing", "Landing")
     data object Login    : Screen("login", "Login")
@@ -83,7 +84,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             SmartParkingTheme {
-                // ---------------- Core instances ----------------
                 val navController = rememberNavController()
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = backStackEntry?.destination?.route
@@ -91,17 +91,14 @@ class MainActivity : ComponentActivity() {
                 val appCtx = applicationContext
                 val db = remember { AppDatabase.getInstance(appCtx) }
 
-                // Session untuk startDestination & header drawer
                 val sessionFlow = remember { db.sessionDao().observeSession() }
                 val session by sessionFlow.collectAsStateWithLifecycle(initialValue = null)
 
-                // Init TokenProvider (untuk AuthInterceptor)
                 LaunchedEffect(Unit) {
                     TokenProvider.init(db.sessionDao())
                     Log.d("MainActivity", "SessionDao TokenProvider: ${db.sessionDao().hashCode()}")
                 }
 
-                // Drawer hanya aktif di private routes
                 val privateRoutes = remember {
                     setOf(Screen.Home.route, Screen.Live.route, Screen.History.route, Screen.Info.route, Screen.Logout.route)
                 }
@@ -109,10 +106,8 @@ class MainActivity : ComponentActivity() {
                 val drawerState = rememberDrawerState(DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
 
-                // ---------------- BLE: auto scan on app start ----------------
                 val beaconVm: BeaconViewModel = viewModel()
 
-                // permissions (API-level aware)
                 val blePermissions: Array<String> = remember {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         arrayOf(
@@ -146,20 +141,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Request permission saat start
                 LaunchedEffect(Unit) {
                     permissionsGranted = hasBlePermissions()
                     if (!permissionsGranted) permissionLauncher.launch(blePermissions)
                 }
 
-                // Minta enable BT bila perlu
                 LaunchedEffect(permissionsGranted) {
                     if (permissionsGranted && !btEnabled) {
                         enableBtLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
                     }
                 }
 
-                // Start scan sekali saja saat sudah OK
                 LaunchedEffect(permissionsGranted, btEnabled) {
                     if (permissionsGranted && btEnabled && !scanStarted) {
                         scanStarted = true
@@ -167,27 +159,23 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Stop scan saat composition dibuang
                 DisposableEffect(Unit) {
                     onDispose { beaconVm.stopScan() }
                 }
 
-                // ---------------- Bridge BLE → Parking update ----------------
                 val liveVm: LiveParkingViewModel = viewModel(factory = LiveParkingVMFactory(db.sessionDao()))
                 val userId: Int? = session?.userId
 
                 val api = remember { com.example.smartparking.data.repository.UserRepository(db.sessionDao()) }
                 val vm: EditPassViewModel = viewModel(factory = EditPassVMFactory(api))
 
-//                LaunchedEffect(Unit) {
-//                    // Ketika slot terdeteksi, update DB lalu reload warna
-//                    beaconVm.detectedSlot.collect { slotId ->
-//                        liveVm.applyBeaconDetection(slotId)
-//                    }
-//
-//                }
+                LaunchedEffect(Unit) {
+                    beaconVm.detectedSlot.collect { slotId ->
+                        liveVm.applyBeaconDetection(slotId)
+                    }
 
-                // ---------------- UI scaffold + Navigation ----------------
+                }
+
                 ModalNavigationDrawer(
                     drawerState = drawerState,
                     gesturesEnabled = isPrivate,
@@ -197,7 +185,6 @@ class MainActivity : ComponentActivity() {
                                 selectedRoute = currentRoute,
                                 onItemClick = { route ->
                                     scope.launch {
-                                        // tutup drawer cepat agar aman saat navigate
                                         drawerState.close()
                                         navController.navigate(route) {
                                             launchSingleTop = true
@@ -213,43 +200,18 @@ class MainActivity : ComponentActivity() {
                 ) {
                     Scaffold(
                         containerColor = Color.Transparent,
-                        contentWindowInsets = WindowInsets(0),
-//                        topBar = {
-//                            if (isPrivate) {
-//                                TopAppBar(
-//                                    title = {
-//                                        Text(
-//                                            when (currentRoute) {
-//                                                Screen.Home.route -> "Home"
-//                                                Screen.Live.route -> "Live Parking"
-//                                                Screen.History.route -> "History"
-//                                                Screen.Info.route -> "Information"
-//                                                Screen.Logout.route -> "Logout"
-//                                                else -> ""
-//                                            }
-//                                        )
-//                                    },
-//                                    navigationIcon = {
-//                                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-//                                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
-//                                        }
-//                                    }
-//                                )
-//                            }
-//                        }
+                        contentWindowInsets = WindowInsets(0)
                     ) { innerPadding ->
                         Box(
                             Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding)
                         ) {
-                            // isi utama: NavHost
                             NavHost(
                                 navController = navController,
                                 startDestination = if (session == null) Screen.Landing.route else Screen.Home.route,
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                // ---------- Public ----------
                                 composable(Screen.Landing.route) {
                                     LandingPageScreen(
                                         brandName = "SPARK",
@@ -275,7 +237,13 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 composable(Screen.SignUp.route) {
+                                    val userRepo = remember { UserRepository(db.sessionDao()) }
+                                    val vm: SignUpViewModel = viewModel(factory = SignUpVMFactory(
+                                        userRepo
+                                    )
+                                    )
                                     SignUpPage(
+                                        vm = vm,
                                         onRegistered = {
                                             navController.navigate(Screen.Login.route) {
                                                 launchSingleTop = true
@@ -288,18 +256,15 @@ class MainActivity : ComponentActivity() {
                                     EditPassPage(
                                         vm = vm,
                                         onBackToLogin = {
-                                            // balik ke login setelah success
                                             navController.popBackStack(Screen.Login.route, inclusive = false)
                                         }
                                     )
                                 }
 
-                                // ---------- Private ----------
                                 composable(Screen.Home.route) {
                                     HomePage()
                                 }
                                 composable(Screen.Live.route) {
-                                    // pakai liveVm yang sama (satu instance di activity scope)
                                     LiveParkingPage(vm = liveVm, beaconVM = beaconVm, currentUserId = userId)
                                 }
                                 composable(Screen.History.route) {

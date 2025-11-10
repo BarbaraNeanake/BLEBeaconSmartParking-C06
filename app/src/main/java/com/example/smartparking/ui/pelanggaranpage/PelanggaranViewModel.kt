@@ -54,7 +54,6 @@ class PelanggaranViewModel(
 
                 println(resp)
                 if (resp.code() == 404) {
-                    // ✅ Tidak ada pelanggaran
                     _uiState.value = PelanggaranUiState(
                         loading = false,
                         ownerName = userName,

@@ -17,16 +17,14 @@ class LogoutViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(LogoutUiState())
     val uiState = _uiState.asStateFlow()
 
-    /** Tutup dialog tanpa logout */
     fun cancelDialog() {
         _uiState.value = _uiState.value.copy(showDialog = false)
     }
 
-    /** Konfirmasi logout (simulasi, nanti ganti call BE) */
     fun confirmLogout(onSuccess: () -> Unit) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true)
-            delay(600) // simulasi proses
+            delay(600)
             _uiState.value = _uiState.value.copy(loading = false, showDialog = false)
             onSuccess()
         }

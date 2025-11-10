@@ -24,14 +24,12 @@ class HomePageViewModel(
     private val _miniatureStatus = MutableStateFlow(ParkingStatus())
     val miniatureStatus: StateFlow<ParkingStatus> = _miniatureStatus
 
-    /** 🔹 Fetch status keseluruhan parkir FT */
     fun fetchParkingStatus() {
         viewModelScope.launch {
             _parkingStatus.value = ParkingStatus(totalSlots = 147, usedSlots = 65)
         }
     }
 
-    /** 🔹 Fetch khusus miniatur FT (misal lokasi = 'Departemen') */
     fun fetchMiniatureStatus() {
         viewModelScope.launch {
             try {

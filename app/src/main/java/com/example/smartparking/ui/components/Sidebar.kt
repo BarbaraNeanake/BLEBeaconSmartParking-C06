@@ -51,9 +51,8 @@ fun DrawerContent(
         DrawerItem("Live Parking Map", "live_parking", Icons.Outlined.Map),
         DrawerItem("History", "history", Icons.Outlined.History),
         DrawerItem("Information", "information", Icons.Outlined.Info),
-        DrawerItem("Logout", "logout", Icons.Outlined.PowerSettingsNew),
-        DrawerItem(label="Pelanggaran", "pelanggaran", Icons.Outlined.Campaign)
-
+        DrawerItem(label="Pelanggaran", "pelanggaran", Icons.Outlined.Campaign),
+        DrawerItem("Logout", "logout", Icons.Outlined.PowerSettingsNew)
     )
     
 

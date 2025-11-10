@@ -36,12 +36,10 @@ fun LogoutPage(
             onConfirm = { vm.confirmLogout(onSuccess = onLoggedOut) }
         )
     } else {
-        // dialog ditutup → balik ke screen sebelumnya
         LaunchedEffect(Unit) { onCancel() }
     }
 }
 
-/* ------------ UI Dialog (Hi-Fi) ------------ */
 @Composable
 private fun LogoutDialog(
     loading: Boolean,
@@ -55,7 +53,6 @@ private fun LogoutDialog(
                 .padding(horizontal = 24.dp),
             contentAlignment = Alignment.TopCenter
         ) {
-            // Card utama
             Card(
                 shape = RoundedCornerShape(20.dp),
                 elevation = CardDefaults.cardElevation(8.dp),
@@ -105,7 +102,6 @@ private fun LogoutDialog(
                 }
             }
 
-            // Icon bulat di atas card
             Box(
                 modifier = Modifier
                     .size(54.dp)
@@ -114,7 +110,7 @@ private fun LogoutDialog(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Logout, // non-deprecated, auto RTL
+                    imageVector = Icons.AutoMirrored.Filled.Logout,
                     contentDescription = "Logout Icon",
                     tint = Color(0xFFFF7043),
                     modifier = Modifier.size(32.dp)
@@ -124,12 +120,11 @@ private fun LogoutDialog(
     }
 }
 
-/* ------------ Util: Tombol Gradien ------------ */
 @Composable
 private fun GradientButton(
     text: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,                    // modifier dulu (lint happy)
+    modifier: Modifier = Modifier,
     enabled: Boolean = true,
     shape: RoundedCornerShape = RoundedCornerShape(12.dp)
 ) {

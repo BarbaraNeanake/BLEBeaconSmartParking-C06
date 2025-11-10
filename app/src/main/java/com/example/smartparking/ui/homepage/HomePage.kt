@@ -31,7 +31,6 @@ import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 import kotlinx.coroutines.delay
 
-// ---------- Data tabel ----------
 data class ParkingLocation(
     val id: String,
     val location: String,
@@ -57,7 +56,6 @@ private val parkingLocations: List<ParkingLocation> = listOf(
     ParkingLocation("P16", "Satu Bumi", 0)
 )
 
-// ---------- UI ----------
 @Composable
 fun HomePage(
     vm: HomePageViewModel = viewModel()
@@ -65,7 +63,6 @@ fun HomePage(
     val parkingStatus by vm.parkingStatus.collectAsState()
     val miniatureStatus by vm.miniatureStatus.collectAsState()
 
-    // Auto-refresh setiap 10 detik
     LaunchedEffect(Unit) {
         vm.fetchParkingStatus()
         vm.fetchMiniatureStatus()
@@ -76,7 +73,6 @@ fun HomePage(
         }
     }
 
-    // Background gradasi
     val bg = remember {
         Brush.verticalGradient(
             listOf(
@@ -98,7 +94,6 @@ fun HomePage(
         verticalArrangement = Arrangement.spacedBy(20.dp),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
-        // Header
         item {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -127,21 +122,17 @@ fun HomePage(
                 )
             }
         }
-
-        // Info slot
         item {
             Box(
                 modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Miniatur FT
                     InfoCard(
                         title = "Slot Parkir Miniatur FT",
                         totalSlots = parkingStatus.totalSlots,
                         usedSlots = parkingStatus.usedSlots
                     )
-                    // Seluruh FT
                     InfoCard(
                         title = "Slot Parkir Mobil di FT Saat Ini",
                         totalSlots = miniatureStatus.totalSlots,
@@ -150,8 +141,6 @@ fun HomePage(
                 }
             }
         }
-
-        // Peta
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -168,8 +157,6 @@ fun HomePage(
                 )
             }
         }
-
-        // Tabel kapasitas
         item {
             ParkingTable(rows = parkingLocations, miniatureStatus = miniatureStatus)
         }
@@ -234,8 +221,6 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingSt
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.fillMaxWidth()) {
-
-            // Header
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -252,8 +237,6 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingSt
                     modifier = Modifier.weight(1f)
                 )
             }
-
-            // Baris khusus miniatur (dinamis)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -269,8 +252,6 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingSt
                     modifier = Modifier.weight(1f)
                 )
             }
-
-            // Rows existing
             rows.forEach { p ->
                 Row(
                     Modifier
@@ -291,8 +272,6 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingSt
         }
     }
 }
-
-/* ==================== Preview ==================== */
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
 private fun PreviewHomePage() {

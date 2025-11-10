@@ -64,7 +64,6 @@ fun InformationPage() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(bottom = 20.dp)
         ) {
-            /* ===== Header ala homepage, diberi jarak ekstra ===== */
             item {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -101,7 +100,6 @@ fun InformationPage() {
                 }
             }
 
-            /* ===== Section 1: Pengantar (sticker kiri) ===== */
             item {
                 ForegroundStickerCard(
                     sticker = R.drawable.info2,
@@ -120,7 +118,6 @@ fun InformationPage() {
                 }
             }
 
-            /* ===== Section 2: Poin aturan (sticker kanan) ===== */
             item {
                 ForegroundStickerCard(
                     sticker = R.drawable.info3,
@@ -140,7 +137,6 @@ fun InformationPage() {
                 }
             }
 
-            /* ===== Section 3: Penutup (sticker kanan) ===== */
             item {
                 ForegroundStickerCard(
                     sticker = R.drawable.info4,
@@ -158,7 +154,6 @@ fun InformationPage() {
                 }
             }
 
-            /* ===== CTA navy–putih ===== */
             item {
                 Button(
                     onClick = { uri.openUri("https://ugm.id/TegakSHEI") },
@@ -179,8 +174,6 @@ fun InformationPage() {
         }
     }
 }
-
-/* ---------- Building blocks ---------- */
 
 private enum class StickerSide { START, END }
 
@@ -238,8 +231,6 @@ private fun Bullet(text: String) {
         Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 20.sp)
     }
 }
-
-/* ---------- Previews ---------- */
 
 @Preview(
     showBackground = true,

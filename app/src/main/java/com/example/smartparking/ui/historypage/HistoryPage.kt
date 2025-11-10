@@ -57,7 +57,6 @@ private fun HistoryContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        // Header
         item {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -80,8 +79,6 @@ private fun HistoryContent(
                 )
             }
         }
-
-        // Content state
         when {
             ui.loading -> {
                 item {
@@ -95,7 +92,6 @@ private fun HistoryContent(
                     }
                 }
             }
-
             ui.error != null -> {
                 item {
                     Column(
@@ -116,7 +112,6 @@ private fun HistoryContent(
                     }
                 }
             }
-
             else -> {
                 item {
                     Card(
@@ -141,7 +136,6 @@ private fun HistoryContent(
                         }
                     }
                 }
-
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -164,8 +158,6 @@ private fun HistoryContent(
                                 Text("Status", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1.0f))
                             }
                             Divider()
-
-                            // List log data (Column, bukan nested LazyColumn)
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -206,8 +198,6 @@ private fun HistoryContent(
                         }
                     }
                 }
-
-                // Footer illustration
                 item {
                     Box(
                         modifier = Modifier
@@ -234,14 +224,10 @@ private fun formatTime(time: Any?): String {
         val raw = time.toString().replace("T", " ")
         val cleaned = raw.split(".").firstOrNull() ?: raw
 
-        // Parsing ke LocalDateTime
         val parsed = LocalDateTime.parse(cleaned, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-
-        // Konversi ke zona WIB
         val wibTime = parsed.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of("Asia/Jakarta"))
         wibTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
     } catch (e: Exception) {
-        // Jika gagal parsing, tampilkan string asli (aman)
         time.toString().split(".").firstOrNull() ?: time.toString()
     }
 }
@@ -252,9 +238,7 @@ private fun extractDateTimeParts(time: Any?): Pair<String, String> {
         is String -> time
         else -> time.toString()
     }
-    // Hilangkan mikrodetik kalau ada
     val clean = raw.split(".").firstOrNull() ?: raw
-    // Format umum: "2025-11-05T13:30:23"
     return if (clean.contains("T")) {
         val (date, timePart) = clean.split("T")
         date to timePart

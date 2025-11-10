@@ -20,30 +20,22 @@ data class BeaconData(
     val rssiSamples: MutableList<Int> = mutableListOf()
 )
 
-/**
- * BeaconViewModel – versi lengkap (5 slot: S1..S5).
- * - Scan BLE (tanpa filter dulu) -> kumpulkan RSSI per device
- * - Map nama device -> alias beacon (B1/B2/B3/..)
- * - Hitung mean RSSI per alias -> bandingkan dengan fingerprint -> tentukan slot terbaik
- */
+
 class BeaconViewModel : ViewModel() {
 
-    /** Mapping nama perangkat BLE -> alias beacon (SESUIKAN dengan yang terlihat di Logcat) */
     private val aliasByDeviceName: Map<String, String> = mapOf(
-        "Beacon-Entrance" to "B1",
-        "Beacon-Hall"     to "B2",
-        "Beacon-Lift"     to "B3",
+        "BeaconA" to "B1",
+        "BeaconB"     to "B2",
+        "BeaconC"     to "B3",
         // Tambah jika punya beacon lain:
         // "Beacon-Corner"   to "B4",
         // "Beacon-Gate"     to "B5",
     )
 
-    
-    /** Fingerprint 5 slot (contoh angka dummy). GANTI dengan hasil kalibrasi lapangan. */
     private var fingerprint: Map<String, Map<String, Int>> = mapOf(
         "S1" to mapOf("B1" to -68, "B2" to -77, "B3" to -78),
         "S2" to mapOf("B1" to -75, "B2" to -70, "B3" to -79),
-        "S3" to mapOf("B1" to -60, "B2" to -85, "B3" to -72),
+        "S3" to mapOf("B1" to -72, "B2" to -60, "B3" to -55),
         "S4" to mapOf("B1" to -50, "B2" to -55, "B3" to -84),
         "S5" to mapOf("B1" to -82, "B2" to -66, "B3" to -74)
     )
@@ -52,24 +44,20 @@ class BeaconViewModel : ViewModel() {
         fingerprint = newFp
     }
 
-    /** Debug list beacons (buat ditampilkan di UI bila perlu) */
     private val _beacons = MutableStateFlow<List<BeaconData>>(emptyList())
     val beacons: StateFlow<List<BeaconData>> = _beacons
 
-    /** Hasil estimasi slot terkini: "S1".."S5" (atau null jika belum confident) */
     private val _detectedSlot = MutableStateFlow<String?>(null)
     val detectedSlot: StateFlow<String?> = _detectedSlot
 
-    /** Buffer RSSI untuk tiap alias beacon (rolling window 10 detik) */
     private val samplesByAlias: MutableMap<String, MutableList<Int>> = mutableMapOf()
 
     private val handler = Handler(Looper.getMainLooper())
-    private val intervalMs = 10_000L
+    private val intervalMs = 5_000L
     private var scanCallback: ScanCallback? = null
     private var lastEmittedSlot: String? = null
 
-    /** Minimum gap jarak (Euclidean) antara juara 1 & 2 agar dianggap “yakin” */
-    private val minDistanceGap = 0.5
+    private val minDistanceGap = 1.0
 
     companion object {
         private const val TAG = "BLE"
@@ -86,29 +74,35 @@ class BeaconViewModel : ViewModel() {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
         val scanner = adapter.bluetoothLeScanner ?: return
 
-        // kosongkan buffer lama
         _beacons.value = emptyList()
 
-        // (opsional) set ke low-latency biar cepat nangkap
         val settings = android.bluetooth.le.ScanSettings.Builder()
             .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        // Tidak pakai ScanFilter karena kita mau prefix, bukan exact match
         val filters = emptyList<android.bluetooth.le.ScanFilter>()
 
         val cb = object : android.bluetooth.le.ScanCallback() {
             override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
-                // Ambil nama dari iklan dulu, kalau null baru dari device
                 val name = result.scanRecord?.deviceName ?: result.device.name ?: return
 
-                // FILTER: hanya perangkat dengan nama diawali "Beacon" (tanpa peduli kapital)
                 if (!name.startsWith("Beacon", ignoreCase = true)) return
 
                 val address = result.device.address
                 val rssi = result.rssi
 
-                // update list beacon yang kita simpan
+                Log.d(TAG, "📡 Terbaca BLE: name=$name, addr=$address, rssi=$rssi")
+
+
+                val alias = getAliasFor(name)
+                if (alias != null) {
+                    val list = samplesByAlias.getOrPut(alias) { mutableListOf() }
+                    list.add(rssi)
+                    Log.i(TAG, "✅ $name → $alias (total=${list.size})")
+                } else {
+                    Log.w(TAG, "⚠️ Tidak ada alias cocok untuk $name")
+                }
+
                 val curr = _beacons.value.toMutableList()
                 val exist = curr.find { it.address == address }
                 if (exist != null) {
@@ -148,13 +142,25 @@ class BeaconViewModel : ViewModel() {
         }, intervalMs)
     }
 
-    /** Ambil mean RSSI per alias -> hitung jarak Euclidean ke fingerprint -> pilih slot terbaik */
+    private fun getAliasFor(name: String): String? {
+        val lower = name.lowercase()
+
+        return when {
+            lower == "beacona" -> "B1"
+            lower == "beaconb" -> "B2"
+            lower == "beaconc" -> "B3"
+            else -> null
+        }
+    }
+
     private fun estimateAndEmit() {
         if (fingerprint.isEmpty()) return
 
-        // Mean RSSI untuk tiap alias. Kalau kosong, pakai MISSING_DEFAULT.
+        Log.d(TAG, "📦 samplesByAlias=${samplesByAlias.mapValues { it.value.size }}")
+
+
         val means: Map<String, Int> = fingerprint
-            .flatMap { it.value.keys } // semua alias yang dipakai fingerprint
+            .flatMap { it.value.keys }
             .distinct()
             .associateWith { alias ->
                 val samples = samplesByAlias[alias]
@@ -182,7 +188,6 @@ class BeaconViewModel : ViewModel() {
             }
         }
 
-        // Terapkan ambang gap supaya tidak sensitif noise
         val confident = (secondBest - bestDist) >= minDistanceGap
 
         if (bestSlot != null && confident && bestSlot != lastEmittedSlot) {
@@ -193,9 +198,10 @@ class BeaconViewModel : ViewModel() {
             Log.d(TAG, "No confident slot. best=$bestSlot dist=$bestDist gap=${secondBest - bestDist}")
         }
 
-        // Geser jendela: kosongkan buffer agar pengukuran berikutnya fresh
+        Log.d(TAG, "🧩 Fingerprint aliases: ${fingerprint.flatMap { it.value.keys }}")
+        Log.d(TAG, "📶 SamplesByAlias keys: ${samplesByAlias.keys}")
+
         samplesByAlias.clear()
-        // Debug list beacons juga direset supaya isi UI tidak “membengkak” terus
         _beacons.value = emptyList()
     }
 
