@@ -87,8 +87,30 @@ uint32_t JPEG_EncodeGrayscale(const uint8_t* input_buffer, uint32_t input_size,
                                uint8_t* output_buffer, uint32_t output_max_size,
                                uint8_t quality) {
     
-    if (!input_buffer || !output_buffer || input_size < 307200) { // 640x480
+    // Support multiple resolutions
+    if (!input_buffer || !output_buffer || input_size < 19200) {
         return 0;
+    }
+    
+    // Determine image dimensions from size
+    uint16_t width, height;
+    if (input_size >= 307200) {
+        width = 640;
+        height = 480;
+    } else if (input_size >= 76800) {
+        width = 320;
+        height = 240;
+    } else if (input_size >= 57344) {
+        width = 256;
+        height = 224;
+    } else if (input_size >= 53248) {
+        width = 256;
+        height = 208;
+    } else if (input_size >= 19200) {
+        width = 160;
+        height = 120;
+    } else {
+        return 0; // Unsupported size
     }
     
     uint8_t* ptr = output_buffer;
@@ -126,8 +148,8 @@ uint32_t JPEG_EncodeGrayscale(const uint8_t* input_buffer, uint32_t input_size,
     write_word(&ptr, JPEG_SOF0);
     write_word(&ptr, 11); // Length
     write_byte(&ptr, 8); // Precision (8 bits)
-    write_word(&ptr, 480); // Height
-    write_word(&ptr, 640); // Width
+    write_word(&ptr, height); // Height (240 for QVGA, 480 for VGA)
+    write_word(&ptr, width);  // Width (320 for QVGA, 640 for VGA)
     write_byte(&ptr, 1); // Number of components (grayscale)
     write_byte(&ptr, 1); // Component ID
     write_byte(&ptr, 0x11); // Sampling factor (1x1)
@@ -163,9 +185,9 @@ uint32_t JPEG_EncodeGrayscale(const uint8_t* input_buffer, uint32_t input_size,
     const uint8_t* src = input_buffer;
     
     // Simple subsampling by 4 for quick compression (not true JPEG encoding)
-    for (int y = 0; y < 480; y += 4) {
-        for (int x = 0; x < 640; x += 4) {
-            uint8_t avg = src[y * 640 + x];
+    for (uint16_t y = 0; y < height; y += 4) {
+        for (uint16_t x = 0; x < width; x += 4) {
+            uint8_t avg = src[y * width + x];
             // Write byte, escape 0xFF
             if (avg == 0xFF) {
                 write_byte(&ptr, 0xFF);

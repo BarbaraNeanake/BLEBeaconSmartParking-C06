@@ -1,6 +1,8 @@
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -10,17 +12,9 @@
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "driver/i2c.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "nvs_flash.h"
-#include "esp_http_server.h"
-#include "esp_netif.h"
+#include "driver/spi_slave.h"
 
-// WiFi credentials
-#define WIFI_SSID "Waifai"
-#define WIFI_PASS "123654987"
-
-static const char *TAG = "ESP32CAM_TEST";
+static const char *TAG = "ESP32CAM_SPI";
 
 // ESP32-CAM AI-Thinker Pin Definition
 #define CAM_PIN_PWDN    32
@@ -40,6 +34,16 @@ static const char *TAG = "ESP32CAM_TEST";
 #define CAM_PIN_VSYNC   25
 #define CAM_PIN_HREF    23
 #define CAM_PIN_PCLK    22
+
+// SPI Pins (as per blueprint.md)
+#define SPI_MOSI_PIN    13  // GPIO13 -> STM32 PB15
+#define SPI_MISO_PIN    14  // GPIO14 -> STM32 PB14
+#define SPI_SCLK_PIN    12  // GPIO12 -> STM32 PB13
+#define SPI_CS_PIN      15  // GPIO15 -> STM32 PB12 (Trigger/NSS)
+
+// SPI Configuration
+#define SPI_MAX_TRANSFER_SIZE   4096
+#define DMA_CHAN                2
 
 static camera_config_t camera_config = {
     .pin_pwdn       = CAM_PIN_PWDN,
@@ -63,13 +67,18 @@ static camera_config_t camera_config = {
     .ledc_timer     = LEDC_TIMER_0,
     .ledc_channel   = LEDC_CHANNEL_0,
     
-    .pixel_format   = PIXFORMAT_JPEG,       // Try JPEG first - works better without PSRAM
-    .frame_size     = FRAMESIZE_QVGA,       // Start with QVGA (320x240)
-    .jpeg_quality   = 12,                   // 0-63, lower means higher quality
+    .pixel_format   = PIXFORMAT_GRAYSCALE,  // Grayscale as per STM32 protocol
+    .frame_size     = FRAMESIZE_QVGA,       // QVGA (320x240) = 76,800 bytes
+    .jpeg_quality   = 12,                   // Not used for grayscale
     .fb_count       = 1,                    // Number of frame buffers
     .fb_location    = CAMERA_FB_IN_DRAM,    // Use DRAM since PSRAM not detected
     .grab_mode      = CAMERA_GRAB_WHEN_EMPTY
 };
+
+// Global variables
+static camera_fb_t *current_fb = NULL;
+static volatile bool capture_triggered = false;
+static volatile bool data_ready = false;
 
 const char* get_camera_model_name(camera_model_t model) {
     switch(model) {
@@ -128,37 +137,16 @@ const char* get_frame_size_name(framesize_t size) {
 }
 
 void print_system_info(void) {
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "ESP32-CAM CAMERA FUNCTIONALITY TEST");
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "Chip: %s", CONFIG_IDF_TARGET);
-    ESP_LOGI(TAG, "Free heap: %lu bytes", esp_get_free_heap_size());
-    ESP_LOGI(TAG, "Free internal heap: %lu bytes", esp_get_free_internal_heap_size());
-    
-    // Check for PSRAM using heap capabilities
-    size_t psram_size = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-    ESP_LOGI(TAG, "PSRAM found: %s", psram_size > 0 ? "YES" : "NO");
-    if (psram_size > 0) {
-        ESP_LOGI(TAG, "PSRAM size: %lu bytes", psram_size);
-        ESP_LOGI(TAG, "Free PSRAM: %lu bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    }
-    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "ESP32-CAM SPI Slave - Free heap: %lu bytes", esp_get_free_heap_size());
 }
 
 void print_camera_config(void) {
-    ESP_LOGI(TAG, "Camera Configuration:");
-    ESP_LOGI(TAG, "  XCLK Freq: %d Hz", camera_config.xclk_freq_hz);
-    ESP_LOGI(TAG, "  Pixel Format: %s", get_pixel_format_name(camera_config.pixel_format));
-    ESP_LOGI(TAG, "  Frame Size: %s", get_frame_size_name(camera_config.frame_size));
-    ESP_LOGI(TAG, "  JPEG Quality: %d (0-63, lower=better)", camera_config.jpeg_quality);
-    ESP_LOGI(TAG, "  Frame Buffers: %d", camera_config.fb_count);
-    ESP_LOGI(TAG, "  FB Location: %s", camera_config.fb_location == CAMERA_FB_IN_PSRAM ? "PSRAM" : "DRAM");
+    ESP_LOGI(TAG, "Camera: %s %s", 
+             get_pixel_format_name(camera_config.pixel_format),
+             get_frame_size_name(camera_config.frame_size));
 }
 
 void prepare_camera_pins(void) {
-    ESP_LOGI(TAG, "Preparing camera pins...");
-    
-    // Power down the camera first
     if (CAM_PIN_PWDN != -1) {
         gpio_config_t io_conf = {
             .pin_bit_mask = (1ULL << CAM_PIN_PWDN),
@@ -168,22 +156,14 @@ void prepare_camera_pins(void) {
             .intr_type = GPIO_INTR_DISABLE
         };
         gpio_config(&io_conf);
-        
-        // Power down camera (active high)
         gpio_set_level(CAM_PIN_PWDN, 1);
         vTaskDelay(pdMS_TO_TICKS(100));
-        
-        // Power up camera
         gpio_set_level(CAM_PIN_PWDN, 0);
         vTaskDelay(pdMS_TO_TICKS(100));
-        
-        ESP_LOGI(TAG, "Camera power cycled successfully");
     }
 }
 
 void scan_i2c_bus(void) {
-    ESP_LOGI(TAG, "Scanning I2C bus...");
-    
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = CAM_PIN_SIOD,
@@ -193,110 +173,35 @@ void scan_i2c_bus(void) {
         .master.clk_speed = 100000,
     };
     
-    esp_err_t err = i2c_param_config(I2C_NUM_0, &conf);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C config failed: %s", esp_err_to_name(err));
-        return;
+    if (i2c_param_config(I2C_NUM_0, &conf) != ESP_OK) return;
+    if (i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0) != ESP_OK) return;
+    
+    // Quick scan for OV2640 at 0x30
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (0x30 << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
+    i2c_cmd_link_delete(cmd);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "I2C: Camera detected at 0x30");
     }
     
-    err = i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C driver install failed: %s", esp_err_to_name(err));
-        return;
-    }
-    
-    ESP_LOGI(TAG, "I2C initialized. Scanning for devices...");
-    int devices_found = 0;
-    
-    for (uint8_t addr = 1; addr < 127; addr++) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_stop(cmd);
-        
-        esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
-        i2c_cmd_link_delete(cmd);
-        
-        if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "Found I2C device at address: 0x%02X", addr);
-            devices_found++;
-            
-            // If this is the OV2640 address, try to read sensor ID
-            if (addr == 0x30) {
-                ESP_LOGI(TAG, "Device at 0x30 detected - attempting to read sensor ID registers...");
-                
-                // Try to read OV2640 ID registers
-                // Register 0x0A (MIDH), 0x0B (MIDL), 0x1C (PID), 0x1D (VER)
-                uint8_t reg_addr;
-                uint8_t data;
-                
-                // Read Manufacturer ID High (should be 0x7F for OV2640)
-                reg_addr = 0x0A;
-                cmd = i2c_cmd_link_create();
-                i2c_master_start(cmd);
-                i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-                i2c_master_write_byte(cmd, reg_addr, true);
-                i2c_master_start(cmd);
-                i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
-                i2c_master_read_byte(cmd, &data, I2C_MASTER_NACK);
-                i2c_master_stop(cmd);
-                ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
-                i2c_cmd_link_delete(cmd);
-                
-                if (ret == ESP_OK) {
-                    ESP_LOGI(TAG, "  MIDH (0x0A): 0x%02X (expected 0x7F for OV2640)", data);
-                } else {
-                    ESP_LOGW(TAG, "  Failed to read MIDH register");
-                }
-                
-                // Read Product ID (should be 0x26 for OV2640)
-                reg_addr = 0x1C;
-                cmd = i2c_cmd_link_create();
-                i2c_master_start(cmd);
-                i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-                i2c_master_write_byte(cmd, reg_addr, true);
-                i2c_master_start(cmd);
-                i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
-                i2c_master_read_byte(cmd, &data, I2C_MASTER_NACK);
-                i2c_master_stop(cmd);
-                ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(100));
-                i2c_cmd_link_delete(cmd);
-                
-                if (ret == ESP_OK) {
-                    ESP_LOGI(TAG, "  PID (0x1C): 0x%02X (expected 0x26 for OV2640)", data);
-                } else {
-                    ESP_LOGW(TAG, "  Failed to read PID register");
-                }
-            }
-        }
-    }
-    
-    if (devices_found == 0) {
-        ESP_LOGW(TAG, "No I2C devices found! Check wiring.");
-    } else {
-        ESP_LOGI(TAG, "Found %d I2C device(s)", devices_found);
-    }
-    
-    // Remove I2C driver for camera to reinitialize
     i2c_driver_delete(I2C_NUM_0);
 }
 
 esp_err_t init_ledc_for_camera(void) {
-    ESP_LOGI(TAG, "Initializing LEDC for camera clock...");
-    
     ledc_timer_config_t ledc_timer = {
         .speed_mode       = LEDC_LOW_SPEED_MODE,
         .duty_resolution  = LEDC_TIMER_1_BIT,
         .timer_num        = LEDC_TIMER_0,
-        .freq_hz          = 20000000,  // 20MHz for camera
+        .freq_hz          = 20000000,
         .clk_cfg          = LEDC_AUTO_CLK
     };
     
     esp_err_t err = ledc_timer_config(&ledc_timer);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LEDC timer config failed: %s", esp_err_to_name(err));
-        return err;
-    }
+    if (err != ESP_OK) return err;
     
     ledc_channel_config_t ledc_channel = {
         .gpio_num       = CAM_PIN_XCLK,
@@ -308,404 +213,235 @@ esp_err_t init_ledc_for_camera(void) {
         .hpoint         = 0
     };
     
-    err = ledc_channel_config(&ledc_channel);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LEDC channel config failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    
-    ESP_LOGI(TAG, "LEDC initialized successfully");
-    return ESP_OK;
+    return ledc_channel_config(&ledc_channel);
 }
 
-// WiFi event handler
-static void wifi_event_handler(void* arg, esp_event_base_t event_base,
-                                int32_t event_id, void* event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        ESP_LOGI(TAG, "WiFi disconnected, retrying...");
-        esp_wifi_connect();
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        ESP_LOGI(TAG, "Got IP Address: " IPSTR, IP2STR(&event->ip_info.ip));
+// GPIO interrupt handler for CS pin (trigger detection)
+static void IRAM_ATTR cs_interrupt_handler(void* arg) {
+    // CS pin went LOW - trigger capture
+    if (gpio_get_level(SPI_CS_PIN) == 0) {
+        capture_triggered = true;
     }
 }
 
-esp_err_t init_wifi(void) {
-    ESP_LOGI(TAG, "Initializing WiFi...");
-    
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    esp_event_handler_instance_t instance_any_id;
-    esp_event_handler_instance_t instance_got_ip;
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        &instance_any_id));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
-                                                        IP_EVENT_STA_GOT_IP,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        &instance_got_ip));
-
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASS,
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-        },
+esp_err_t init_cs_trigger(void) {
+    // Configure CS pin as input with interrupt
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << SPI_CS_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE  // Trigger on falling edge (CS LOW)
     };
     
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    ESP_LOGI(TAG, "WiFi initialization finished. Connecting to %s...", WIFI_SSID);
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "CS GPIO config failed");
+        return ret;
+    }
     
+    // Install ISR service and add handler
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(SPI_CS_PIN, cs_interrupt_handler, NULL);
+    
+    ESP_LOGI(TAG, "CS trigger ready on GPIO%d", SPI_CS_PIN);
     return ESP_OK;
 }
 
-// HTTP GET Handler for root
-static esp_err_t index_handler(httpd_req_t *req)
-{
-    const char* html = 
-        "<!DOCTYPE html>"
-        "<html>"
-        "<head>"
-        "<title>ESP32-CAM Stream</title>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<style>"
-        "body { font-family: Arial; text-align: center; margin: 20px; background: #f0f0f0; }"
-        "h1 { color: #333; }"
-        "img { max-width: 100%; height: auto; border: 2px solid #333; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }"
-        ".container { background: white; padding: 20px; border-radius: 10px; max-width: 800px; margin: 0 auto; }"
-        ".info { color: #666; margin: 10px 0; }"
-        "button { background: #4CAF50; color: white; padding: 10px 20px; border: none; "
-        "border-radius: 5px; cursor: pointer; margin: 5px; font-size: 16px; }"
-        "button:hover { background: #45a049; }"
-        "</style>"
-        "</head>"
-        "<body>"
-        "<div class='container'>"
-        "<h1>ESP32-CAM Live Stream</h1>"
-        "<p class='info'>Camera: OV2640 | Resolution: QVGA (320x240) | Format: JPEG</p>"
-        "<img id='stream' src='/stream' />"
-        "<br><br>"
-        "<button onclick='location.reload()'>Refresh</button>"
-        "<button onclick='capture()'>Capture</button>"
-        "<p class='info' id='status'>Stream Active</p>"
-        "</div>"
-        "<script>"
-        "function capture() {"
-        "  document.getElementById('status').textContent = 'Capturing...';"
-        "  fetch('/capture').then(() => {"
-        "    document.getElementById('stream').src = '/stream?' + new Date().getTime();"
-        "    document.getElementById('status').textContent = 'Captured!';"
-        "    setTimeout(() => document.getElementById('status').textContent = 'Stream Active', 2000);"
-        "  });"
-        "}"
-        "</script>"
-        "</body>"
-        "</html>";
+esp_err_t init_spi_slave(void) {
+    spi_bus_config_t buscfg = {
+        .mosi_io_num = SPI_MOSI_PIN,
+        .miso_io_num = SPI_MISO_PIN,
+        .sclk_io_num = SPI_SCLK_PIN,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = SPI_MAX_TRANSFER_SIZE,
+    };
     
-    httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, html, strlen(html));
-}
-
-// HTTP GET Handler for camera stream
-static esp_err_t stream_handler(httpd_req_t *req)
-{
-    camera_fb_t *fb = NULL;
-    esp_err_t res = ESP_OK;
+    spi_slave_interface_config_t slvcfg = {
+        .mode = 0,
+        .spics_io_num = -1,  // Don't use hardware CS, we handle it manually
+        .queue_size = 3,
+        .flags = 0,
+        .post_setup_cb = NULL,
+        .post_trans_cb = NULL
+    };
     
-    fb = esp_camera_fb_get();
-    if (!fb) {
-        ESP_LOGE(TAG, "Camera capture failed");
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
+    gpio_set_pull_mode(SPI_MOSI_PIN, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(SPI_SCLK_PIN, GPIO_PULLUP_ONLY);
+    
+    esp_err_t ret = spi_slave_initialize(HSPI_HOST, &buscfg, &slvcfg, DMA_CHAN);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "SPI init failed");
+        return ret;
     }
     
-    httpd_resp_set_type(req, "image/jpeg");
-    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
-    
-    res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-    
-    esp_camera_fb_return(fb);
-    
-    return res;
+    ESP_LOGI(TAG, "SPI slave ready");
+    return ESP_OK;
 }
 
-// HTTP GET Handler for single capture
-static esp_err_t capture_handler(httpd_req_t *req)
-{
-    ESP_LOGI(TAG, "Capture requested");
-    httpd_resp_set_type(req, "text/plain");
-    return httpd_resp_send(req, "OK", 2);
-}
-
-httpd_handle_t start_webserver(void)
-{
-    httpd_handle_t server = NULL;
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = 80;
-    config.ctrl_port = 32768;
-    config.max_open_sockets = 7;
-    config.lru_purge_enable = true;
-
-    ESP_LOGI(TAG, "Starting web server on port: '%d'", config.server_port);
-    if (httpd_start(&server, &config) == ESP_OK) {
-        httpd_uri_t index_uri = {
-            .uri       = "/",
-            .method    = HTTP_GET,
-            .handler   = index_handler,
-            .user_ctx  = NULL
-        };
-        httpd_register_uri_handler(server, &index_uri);
-
-        httpd_uri_t stream_uri = {
-            .uri       = "/stream",
-            .method    = HTTP_GET,
-            .handler   = stream_handler,
-            .user_ctx  = NULL
-        };
-        httpd_register_uri_handler(server, &stream_uri);
-
-        httpd_uri_t capture_uri = {
-            .uri       = "/capture",
-            .method    = HTTP_GET,
-            .handler   = capture_handler,
-            .user_ctx  = NULL
-        };
-        httpd_register_uri_handler(server, &capture_uri);
-
-        return server;
+void capture_task(void *pvParameters) {
+    while (1) {
+        // Wait for CS trigger
+        if (capture_triggered) {
+            capture_triggered = false;
+            
+            ESP_LOGI(TAG, "Trigger detected");
+            
+            // Release old frame buffer if exists
+            if (current_fb) {
+                esp_camera_fb_return(current_fb);
+                current_fb = NULL;
+            }
+            
+            // Capture new image
+            current_fb = esp_camera_fb_get();
+            
+            if (current_fb) {
+                ESP_LOGI(TAG, "Captured: %d bytes (%dx%d)", 
+                         current_fb->len, current_fb->width, current_fb->height);
+                data_ready = true;
+            } else {
+                ESP_LOGE(TAG, "Capture failed");
+                data_ready = false;
+            }
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
+}
 
-    ESP_LOGI(TAG, "Error starting server!");
-    return NULL;
+void spi_transfer_task(void *pvParameters) {
+    WORD_ALIGNED_ATTR uint8_t header[4];
+    
+    while (1) {
+        // Wait for data to be ready
+        if (data_ready && current_fb != NULL) {
+            // Wait for STM32 to pull CS low to request data
+            while (gpio_get_level(SPI_CS_PIN) == 1) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+            
+            ESP_LOGI(TAG, "Sending header");
+            
+            // Prepare 4-byte size header (big-endian)
+            uint32_t size = current_fb->len;
+            header[0] = (size >> 24) & 0xFF;
+            header[1] = (size >> 16) & 0xFF;
+            header[2] = (size >> 8) & 0xFF;
+            header[3] = size & 0xFF;
+            
+            // Send header
+            spi_slave_transaction_t trans_header;
+            memset(&trans_header, 0, sizeof(trans_header));
+            trans_header.length = 4 * 8;  // 4 bytes in bits
+            trans_header.tx_buffer = header;
+            
+            spi_slave_queue_trans(HSPI_HOST, &trans_header, portMAX_DELAY);
+            spi_slave_transaction_t *ret_trans;
+            spi_slave_get_trans_result(HSPI_HOST, &ret_trans, portMAX_DELAY);
+            
+            // Wait for CS to go high then low again for data transfer
+            while (gpio_get_level(SPI_CS_PIN) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+            
+            vTaskDelay(pdMS_TO_TICKS(10));
+            
+            while (gpio_get_level(SPI_CS_PIN) == 1) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+            
+            ESP_LOGI(TAG, "Sending image data");
+            
+            // Send image data in 512-byte chunks
+            uint32_t offset = 0;
+            uint32_t chunk_size = 512;
+            
+            while (offset < current_fb->len) {
+                uint32_t bytes_to_send = (offset + chunk_size > current_fb->len) ? 
+                                         (current_fb->len - offset) : chunk_size;
+                
+                spi_slave_transaction_t trans_data;
+                memset(&trans_data, 0, sizeof(trans_data));
+                trans_data.length = bytes_to_send * 8;
+                trans_data.tx_buffer = current_fb->buf + offset;
+                
+                if (spi_slave_queue_trans(HSPI_HOST, &trans_data, portMAX_DELAY) == ESP_OK) {
+                    spi_slave_get_trans_result(HSPI_HOST, &ret_trans, portMAX_DELAY);
+                    offset += bytes_to_send;
+                } else {
+                    ESP_LOGE(TAG, "SPI transfer failed at offset %lu", offset);
+                    break;
+                }
+                
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+            
+            ESP_LOGI(TAG, "Transfer complete");
+            
+            // Release frame buffer
+            esp_camera_fb_return(current_fb);
+            current_fb = NULL;
+            data_ready = false;
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }
 
 esp_err_t init_camera(void) {
-    ESP_LOGI(TAG, "Initializing camera...");
-    
-    // Prepare camera power pin
     prepare_camera_pins();
-    
-    // Scan I2C bus first
     scan_i2c_bus();
     
-    // Initialize LEDC before camera
     esp_err_t err = init_ledc_for_camera();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "LEDC initialization failed, continuing anyway...");
+        ESP_LOGE(TAG, "LEDC init failed");
     }
     
     err = esp_camera_init(&camera_config);
-    
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Camera init failed with error 0x%x", err);
-        
-        // Provide detailed error messages
-        switch(err) {
-            case ESP_ERR_CAMERA_NOT_DETECTED:
-                ESP_LOGE(TAG, "Camera not detected. Check wiring and I2C connection.");
-                ESP_LOGE(TAG, "Troubleshooting steps:");
-                ESP_LOGE(TAG, "  1. Verify camera module is OV2640");
-                ESP_LOGE(TAG, "  2. Check camera ribbon cable connection");
-                ESP_LOGE(TAG, "  3. Verify I2C pins: SDA=GPIO%d, SCL=GPIO%d", CAM_PIN_SIOD, CAM_PIN_SIOC);
-                ESP_LOGE(TAG, "  4. Check power supply (camera needs stable 3.3V)");
-                ESP_LOGE(TAG, "  5. Try toggling PWDN pin (GPIO%d)", CAM_PIN_PWDN);
-                break;
-            case ESP_ERR_CAMERA_FAILED_TO_SET_FRAME_SIZE:
-                ESP_LOGE(TAG, "Failed to set frame size.");
-                break;
-            case ESP_ERR_CAMERA_FAILED_TO_SET_OUT_FORMAT:
-                ESP_LOGE(TAG, "Failed to set output format.");
-                break;
-            case ESP_ERR_CAMERA_NOT_SUPPORTED:
-                ESP_LOGE(TAG, "Camera not supported on this chip.");
-                ESP_LOGE(TAG, "Camera was detected at I2C address but failed sensor ID verification.");
-                ESP_LOGE(TAG, "Possible causes:");
-                ESP_LOGE(TAG, "  1. Camera sensor cannot be read (communication issue)");
-                ESP_LOGE(TAG, "  2. Sensor is not OV2640 or not in supported sensor list");
-                ESP_LOGE(TAG, "  3. Sensor needs more power or proper reset sequence");
-                ESP_LOGE(TAG, "  4. PSRAM required but not enabled/detected");
-                break;
-            case ESP_ERR_NO_MEM:
-                ESP_LOGE(TAG, "Not enough memory. Try reducing frame size or buffer count.");
-                break;
-            case ESP_ERR_NOT_FOUND:
-                ESP_LOGE(TAG, "Camera sensor not found on I2C bus.");
-                ESP_LOGE(TAG, "This usually means:");
-                ESP_LOGE(TAG, "  - Wrong I2C pins (check SDA/SCL)");
-                ESP_LOGE(TAG, "  - Camera module not powered");
-                ESP_LOGE(TAG, "  - Faulty camera module");
-                ESP_LOGE(TAG, "  - Wrong camera model (expected OV2640)");
-                break;
-            default:
-                ESP_LOGE(TAG, "Unknown camera error.");
-                break;
-        }
+        ESP_LOGE(TAG, "Camera init failed: 0x%x", err);
         return err;
     }
     
-    ESP_LOGI(TAG, "Camera initialized successfully!");
-    
-    // Get sensor information
     sensor_t *s = esp_camera_sensor_get();
     if (s != NULL) {
-        ESP_LOGI(TAG, "========================================");
-        ESP_LOGI(TAG, "Camera Sensor Information:");
-        ESP_LOGI(TAG, "  PID: 0x%X", s->id.PID);
-        ESP_LOGI(TAG, "  VER: 0x%X", s->id.VER);
-        ESP_LOGI(TAG, "  MIDL: 0x%X", s->id.MIDL);
-        ESP_LOGI(TAG, "  MIDH: 0x%X", s->id.MIDH);
-        
-        // Try to identify the camera model based on PID
         camera_sensor_info_t *info = esp_camera_sensor_get_info(&s->id);
         if (info != NULL) {
-            ESP_LOGI(TAG, "  Model: %s", get_camera_model_name(info->model));
-            ESP_LOGI(TAG, "  Max Resolution: %s", get_frame_size_name(info->max_size));
-            ESP_LOGI(TAG, "  JPEG Support: %s", info->support_jpeg ? "YES" : "NO");
+            ESP_LOGI(TAG, "Camera: %s", get_camera_model_name(info->model));
         }
-        ESP_LOGI(TAG, "========================================");
     }
     
     return ESP_OK;
-}
-
-esp_err_t test_camera_capture(void) {
-    ESP_LOGI(TAG, "Testing camera capture...");
-    
-    // Capture a frame
-    camera_fb_t *fb = esp_camera_fb_get();
-    
-    if (!fb) {
-        ESP_LOGE(TAG, "Camera capture failed!");
-        return ESP_FAIL;
-    }
-    
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "Camera capture SUCCESSFUL!");
-    ESP_LOGI(TAG, "Frame buffer info:");
-    ESP_LOGI(TAG, "  Width: %d pixels", fb->width);
-    ESP_LOGI(TAG, "  Height: %d pixels", fb->height);
-    ESP_LOGI(TAG, "  Size: %d bytes", fb->len);
-    ESP_LOGI(TAG, "  Format: %s", get_pixel_format_name(fb->format));
-    ESP_LOGI(TAG, "  Timestamp: %ld.%06ld", fb->timestamp.tv_sec, fb->timestamp.tv_usec);
-    
-    // Display first few bytes of image data (for verification)
-    ESP_LOGI(TAG, "  First 16 bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
-             fb->buf[0], fb->buf[1], fb->buf[2], fb->buf[3],
-             fb->buf[4], fb->buf[5], fb->buf[6], fb->buf[7],
-             fb->buf[8], fb->buf[9], fb->buf[10], fb->buf[11],
-             fb->buf[12], fb->buf[13], fb->buf[14], fb->buf[15]);
-    
-    ESP_LOGI(TAG, "========================================");
-    
-    // Return the frame buffer
-    esp_camera_fb_return(fb);
-    
-    return ESP_OK;
-}
-
-void test_sensor_settings(void) {
-    sensor_t *s = esp_camera_sensor_get();
-    
-    if (s == NULL) {
-        ESP_LOGE(TAG, "Failed to get sensor handle!");
-        return;
-    }
-    
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "Testing sensor settings...");
-    
-    // Test various sensor settings
-    ESP_LOGI(TAG, "Testing brightness adjustment...");
-    s->set_brightness(s, 1);  // Increase brightness
-    vTaskDelay(pdMS_TO_TICKS(500));
-    s->set_brightness(s, 0);  // Reset to normal
-    
-    ESP_LOGI(TAG, "Testing contrast adjustment...");
-    s->set_contrast(s, 1);    // Increase contrast
-    vTaskDelay(pdMS_TO_TICKS(500));
-    s->set_contrast(s, 0);    // Reset to normal
-    
-    ESP_LOGI(TAG, "Testing saturation adjustment...");
-    s->set_saturation(s, 1);  // Increase saturation
-    vTaskDelay(pdMS_TO_TICKS(500));
-    s->set_saturation(s, 0);  // Reset to normal
-    
-    ESP_LOGI(TAG, "Sensor settings test completed!");
-    ESP_LOGI(TAG, "========================================");
 }
 
 void app_main(void) {
-    // Initialize NVS (required for WiFi)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-    
-    // Print system information
     print_system_info();
-    
-    // Print camera configuration
     print_camera_config();
     
-    // Initialize camera first
-    esp_err_t err = init_camera();
-    
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "========================================");
-        ESP_LOGE(TAG, "CAMERA INITIALIZATION FAILED!");
-        ESP_LOGE(TAG, "Please check:");
-        ESP_LOGE(TAG, "  1. Camera module is properly connected");
-        ESP_LOGE(TAG, "  2. Pin definitions match your hardware");
-        ESP_LOGE(TAG, "  3. PSRAM is enabled in sdkconfig");
-        ESP_LOGE(TAG, "  4. esp32-camera library is installed");
-        ESP_LOGE(TAG, "========================================");
-        
-        while(1) {
-            ESP_LOGE(TAG, "Camera initialization failed. Retrying in 10 seconds...");
-            vTaskDelay(pdMS_TO_TICKS(10000));
-        }
+    if (init_camera() != ESP_OK) {
+        ESP_LOGE(TAG, "Camera init failed - check wiring");
+        while(1) vTaskDelay(pdMS_TO_TICKS(10000));
     }
     
-    ESP_LOGI(TAG, "Camera initialized successfully!");
-    
-    // Initialize WiFi
-    init_wifi();
-    
-    // Wait for WiFi connection
-    ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    
-    // Start web server
-    httpd_handle_t server = start_webserver();
-    
-    if (server) {
-        ESP_LOGI(TAG, "========================================");
-        ESP_LOGI(TAG, "WEB SERVER STARTED!");
-        ESP_LOGI(TAG, "Open your browser and go to:");
-        ESP_LOGI(TAG, "http://<ESP32_IP_ADDRESS>/");
-        ESP_LOGI(TAG, "Check the IP address in the logs above");
-        ESP_LOGI(TAG, "========================================");
+    if (init_cs_trigger() != ESP_OK) {
+        ESP_LOGE(TAG, "CS trigger init failed");
+        while(1) vTaskDelay(pdMS_TO_TICKS(10000));
     }
     
-    // Keep running
+    if (init_spi_slave() != ESP_OK) {
+        ESP_LOGE(TAG, "SPI init failed");
+        while(1) vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+    
+    xTaskCreate(capture_task, "capture", 4096, NULL, 5, NULL);
+    xTaskCreate(spi_transfer_task, "spi_tx", 4096, NULL, 4, NULL);
+    
+    ESP_LOGI(TAG, "Ready - waiting for CS trigger (GPIO%d)", SPI_CS_PIN);
+    
     while(1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
-        ESP_LOGI(TAG, "Server running... Free heap: %lu bytes", esp_get_free_heap_size());
+        vTaskDelay(pdMS_TO_TICKS(30000));
+        ESP_LOGI(TAG, "Heap: %lu", esp_get_free_heap_size());
     }
 }

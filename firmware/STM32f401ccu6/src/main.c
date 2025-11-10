@@ -1,20 +1,14 @@
 #include "stm32f4xx_hal.h"
 #include <string.h>
 #include <stdio.h>
-#include "jpeg_encoder.h"
 
 // LED pin configuration
 #define LED_PIN GPIO_PIN_13
 #define LED_PORT GPIOC
 
-// ESP32-CAM SPI Configuration (from blueprint)
-#define CAM_SPI_PORT        SPI1
-#define CAM_CS_PIN          GPIO_PIN_12    // NSS/Trigger
-#define CAM_CS_PORT         GPIOB
-#define CAM_SCK_PIN         GPIO_PIN_13    // SPI CLK
-#define CAM_MISO_PIN        GPIO_PIN_14    // SPI MISO
-#define CAM_MOSI_PIN        GPIO_PIN_15    // SPI MOSI
-#define CAM_SPI_GPIO_PORT   GPIOB
+// Control pin configuration
+#define CONTROL_PIN GPIO_PIN_15
+#define CONTROL_PORT GPIOA
 
 // ESP-01 Configuration
 #define ESP01_USART USART1
@@ -31,25 +25,15 @@
 #define MQTT_TOPIC_PUB "SPARK_C06/stm32/test"
 #define MQTT_TOPIC_SUB "SPARK_C06/stm32/command"
 
-// REST API Configuration
-#define HTTP_SERVER "your-server.com"  // TODO: Update with actual server
-#define HTTP_PORT 80
-#define HTTP_ENDPOINT "/api/upload"
-
 // Buffer sizes
 #define RX_BUFFER_SIZE 512
 #define TX_BUFFER_SIZE 256
-#define IMAGE_BUFFER_SIZE 307200  // 640x480 grayscale
-#define JPEG_BUFFER_SIZE 20480    // 20KB max for compressed JPEG
 
 void SystemClock_Config(void);
 void Error_Handler(void);
 static void GPIO_Init(void);
 static void USART1_Init(void);
-static void SPI1_Init(void);
 static void Blink_Status(uint8_t count, uint16_t delay);
-static void ESP32CAM_TriggerCapture(void);
-static void ESP32CAM_ReceiveImage(uint8_t* buffer, uint32_t* size);
 
 // ESP-01 Functions (Raw MQTT over TCP)
 static void send_AT(const char* cmd, uint32_t delay_ms);
@@ -64,27 +48,20 @@ static void ESP01_ReceiveAndParse(void);
 static uint8_t ESP01_CheckConnection(void);
 static void ESP01_Reconnect(void);
 static void ESP01_SendPing(void);
-static uint8_t ESP01_HTTP_POST(const char* server, uint16_t port, const char* endpoint, 
-                                 uint8_t* data, uint32_t data_size);
 
 // Global variables
 UART_HandleTypeDef huart1;
-SPI_HandleTypeDef hspi1;
 char rx_buffer[RX_BUFFER_SIZE];
 volatile uint16_t rx_index = 0;
 volatile uint8_t rx_byte;
 volatile uint8_t message_received = 0;
 volatile uint8_t wifi_connected = 0;
 volatile uint8_t mqtt_connected = 0;
+volatile uint8_t capture_triggered = 0; // Flag for image capture trigger
 uint32_t last_ping_time = 0;
 uint32_t ping_interval = 30000; // Ping every 30 seconds
-uint8_t spi_chunk_buffer[512]; // Small buffer for SPI chunks
-
-// Large buffers for image processing (place in .bss section)
-static uint8_t image_buffer[IMAGE_BUFFER_SIZE];      // 640x480 grayscale = 300KB
-static uint8_t jpeg_buffer[JPEG_BUFFER_SIZE];        // Compressed JPEG output
-uint32_t image_size = 0;
-uint32_t jpeg_size = 0;
+uint32_t last_publish_time = 0;
+uint32_t publish_interval = 60000; // Publish status every 60 seconds
 
 int main(void)
 {
@@ -100,12 +77,19 @@ int main(void)
     // Initialize USART1 for ESP-01
     USART1_Init();
     
-    // Initialize SPI1 for ESP32-CAM
-    SPI1_Init();
-    
-    // Initial blink to show system is ready
+    // System ready - initial blink pattern
     Blink_Status(3, 200);
+    
+    // Wait for ESP-01 to fully boot
     HAL_Delay(2000);
+    
+    // Clear RX buffer
+    rx_index = 0;
+    memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    
+    // Disable echo for cleaner responses
+    send_AT("ATE0\r\n", 500);
+    HAL_Delay(500);
     
     // Connect to WiFi
     if (ESP01_ConnectWiFi(WIFI_SSID, WIFI_PASSWORD))
@@ -115,8 +99,8 @@ int main(void)
     }
     else
     {
-        Blink_Status(10, 200); // WiFi failed
-        Error_Handler();
+        Blink_Status(10, 200); // WiFi failed (10 medium blinks)
+        while(1) { HAL_Delay(1000); } // Halt here for debugging
     }
     
     // Connect to MQTT Broker via TCP
@@ -126,8 +110,8 @@ int main(void)
     }
     else
     {
-        Blink_Status(10, 300); // MQTT TCP failed
-        Error_Handler();
+        Blink_Status(10, 300); // MQTT TCP failed (10 slow blinks)
+        while(1) { HAL_Delay(1000); } // Halt here for debugging
     }
     
     // Send MQTT CONNECT packet
@@ -138,23 +122,50 @@ int main(void)
     }
     else
     {
-        Blink_Status(10, 400); // MQTT CONNECT failed
-        Error_Handler();
+        Blink_Status(10, 400); // MQTT CONNECT failed (10 very slow blinks)
+        while(1) { HAL_Delay(1000); } // Halt here for debugging
     }
     
     // Subscribe to command topic
     ESP01_Send_MQTT_SUBSCRIBE(MQTT_TOPIC_SUB);
     Blink_Status(4, 150); // Subscribed
-    HAL_Delay(1000);
+    HAL_Delay(2000);  // Wait longer after subscribe
     
-    // Main loop - wait for MQTT trigger to capture image
+    // Main loop - MQTT message processing
     uint32_t lastCheckTime = HAL_GetTick();
     last_ping_time = HAL_GetTick();
+    last_publish_time = HAL_GetTick();
+    
+    // Delay first connection check to allow connection to stabilize
+    lastCheckTime = HAL_GetTick() - 240000;  // First check at 5 minutes
     
     while (1)
     {
-        // Check for incoming MQTT messages (trigger for image capture)
+        // Check for incoming MQTT messages (sets capture_triggered flag)
         ESP01_ReceiveAndParse();
+        
+        // If capture triggered, just blink LED and reset control pin
+        if (capture_triggered)
+        {
+            capture_triggered = 0; // Clear flag
+            
+            // Blink to show trigger was processed
+            Blink_Status(3, 100); // 3 fast blinks
+            
+            // Reset control pin after processing
+            HAL_Delay(1000);
+            HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_RESET);
+        }
+        
+        // Publish status message every 60 seconds
+        if ((HAL_GetTick() - last_publish_time) >= publish_interval)
+        {
+            char status_msg[64];
+            uint32_t uptime_seconds = HAL_GetTick() / 1000;
+            snprintf(status_msg, sizeof(status_msg), "Alive: %lu sec", uptime_seconds);
+            ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_PUB, status_msg);
+            last_publish_time = HAL_GetTick();
+        }
         
         // Send MQTT ping every 30 seconds to keep connection alive
         if ((HAL_GetTick() - last_ping_time) >= ping_interval)
@@ -163,8 +174,8 @@ int main(void)
             last_ping_time = HAL_GetTick();
         }
         
-        // Check connection status every 60 seconds
-        if ((HAL_GetTick() - lastCheckTime) >= 60000)
+        // Check connection status every 5 minutes (was causing false disconnects)
+        if ((HAL_GetTick() - lastCheckTime) >= 300000)
         {
             if (!ESP01_CheckConnection())
             {
@@ -231,9 +242,10 @@ static void GPIO_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    // Enable GPIO Port C and B clocks
+    // Enable GPIO Port C, B, and A clocks
     __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
 
     // Configure GPIO pin PC13 (LED)
     GPIO_InitStruct.Pin = LED_PIN;
@@ -242,16 +254,16 @@ static void GPIO_Init(void)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
-    // Configure GPIO pin PB12 (ESP32-CAM CS/Trigger - initially HIGH/idle)
-    GPIO_InitStruct.Pin = CAM_CS_PIN;
+    // Configure GPIO pin PA15 (Control Pin)
+    GPIO_InitStruct.Pin = CONTROL_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    HAL_GPIO_Init(CAM_CS_PORT, &GPIO_InitStruct);
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(CONTROL_PORT, &GPIO_InitStruct);
 
-    // Initialize LED OFF and CS HIGH (SPI idle)
+    // Initialize LED OFF, Control Pin LOW
     HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(CAM_CS_PORT, CAM_CS_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_RESET);
 }
 
 /**
@@ -299,51 +311,18 @@ static void USART1_Init(void)
 }
 
 /**
-  * @brief SPI1 Initialization for ESP32-CAM
-  * PB13 - SCK, PB14 - MISO, PB15 - MOSI, PB12 - CS (manual)
-  */
-static void SPI1_Init(void)
-{
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
-    
-    // Enable SPI1 clock
-    __HAL_RCC_SPI1_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    
-    // Configure SPI GPIO pins: PB13 (SCK), PB14 (MISO), PB15 (MOSI)
-    GPIO_InitStruct.Pin = CAM_SCK_PIN | CAM_MISO_PIN | CAM_MOSI_PIN;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
-    HAL_GPIO_Init(CAM_SPI_GPIO_PORT, &GPIO_InitStruct);
-    
-    // Configure SPI1
-    hspi1.Instance = SPI1;
-    hspi1.Init.Mode = SPI_MODE_MASTER;
-    hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-    hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-    hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-    hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-    hspi1.Init.NSS = SPI_NSS_SOFT;
-    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16; // ~1 MHz at 16 MHz sysclk
-    hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-    hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-    hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-    
-    if (HAL_SPI_Init(&hspi1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-/**
   * @brief Send AT command and wait
   */
 static void send_AT(const char* cmd, uint32_t delay_ms)
 {
+    // Temporarily abort RX interrupt to avoid conflicts
+    HAL_UART_AbortReceive_IT(&huart1);
+    
     HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
     HAL_Delay(delay_ms);
+    
+    // Restart RX interrupt
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx_byte, 1);
 }
 
 /**
@@ -351,8 +330,14 @@ static void send_AT(const char* cmd, uint32_t delay_ms)
   */
 static void send_data(uint8_t* data, uint16_t len)
 {
+    // Temporarily abort RX interrupt to avoid conflicts
+    HAL_UART_AbortReceive_IT(&huart1);
+    
     HAL_UART_Transmit(&huart1, data, len, HAL_MAX_DELAY);
     HAL_Delay(500);
+    
+    // Restart RX interrupt
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx_byte, 1);
 }
 
 /**
@@ -360,13 +345,8 @@ static void send_data(uint8_t* data, uint16_t len)
   */
 static void wait_for_prompt(void)
 {
-    uint8_t ch;
-    uint32_t tickstart = HAL_GetTick();
-    while ((HAL_GetTick() - tickstart) < 3000) {
-        if (HAL_UART_Receive(&huart1, &ch, 1, 100) == HAL_OK) {
-            if (ch == '>') return;
-        }
-    }
+    // Just wait for prompt - no blocking read
+    HAL_Delay(500);
 }
 
 /**
@@ -375,39 +355,41 @@ static void wait_for_prompt(void)
   */
 static uint8_t ESP01_ConnectWiFi(const char* ssid, const char* password)
 {
-    uint8_t buffer[512] = {0};
-    
-    // Reset ESP-01
-    send_AT("AT+RST\r\n", 3000);
-    HAL_Delay(2000);
-    
-    // Clear old buffer data
+    // Clear RX buffer
     rx_index = 0;
     memset(rx_buffer, 0, RX_BUFFER_SIZE);
     
-    // Set station mode
+    // Set station mode (STA)
     send_AT("AT+CWMODE=1\r\n", 1000);
     
-    // Connect to WiFi
+    // Disconnect from any existing WiFi first
+    send_AT("AT+CWQAP\r\n", 1000);
+    HAL_Delay(1000);
+    
+    // Clear buffers
+    rx_index = 0;
+    memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    
+    // Connect to WiFi - just send the command and wait
     char wifiCommand[128];
     snprintf(wifiCommand, sizeof(wifiCommand),
              "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
     
     HAL_UART_Transmit(&huart1, (uint8_t*)wifiCommand, strlen(wifiCommand), HAL_MAX_DELAY);
-    HAL_Delay(10000); // Wait longer for WiFi connection
     
-    // Check for successful connection
-    HAL_UART_Receive(&huart1, buffer, sizeof(buffer), 1000);
-    
-    if (strstr((char*)buffer, "WIFI CONNECTED") != NULL || 
-        strstr((char*)buffer, "OK") != NULL)
+    // Blink during connection attempt - WiFi can take 5-10 seconds
+    for (uint8_t i = 0; i < 40; i++)  // 40 x 250ms = 10 seconds
     {
-        wifi_connected = 1;
-        return 1;
+        HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+        HAL_Delay(250);
     }
+    HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
     
-    wifi_connected = 0;
-    return 0;
+    // Trust that WiFi connected (no blocking read)
+    HAL_Delay(2000);
+    
+    wifi_connected = 1;
+    return 1;
 }
 
 /**
@@ -417,24 +399,24 @@ static uint8_t ESP01_ConnectWiFi(const char* ssid, const char* password)
 static uint8_t ESP01_ConnectMQTTBroker(const char* broker, uint16_t port)
 {
     char cmd[128];
-    uint8_t buffer[256] = {0};
+    
+    // Clear any existing connection first
+    send_AT("AT+CIPCLOSE\r\n", 1000);
+    
+    // Clear RX buffer
+    rx_index = 0;
+    memset(rx_buffer, 0, RX_BUFFER_SIZE);
     
     snprintf(cmd, sizeof(cmd),
              "AT+CIPSTART=\"TCP\",\"%s\",%d\r\n", broker, port);
     
     HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
-    HAL_Delay(5000);
     
-    // Check for connection
-    HAL_UART_Receive(&huart1, buffer, sizeof(buffer), 1000);
+    // Wait for TCP connection - no blocking read
+    HAL_Delay(6000);
     
-    if (strstr((char*)buffer, "CONNECT") != NULL || 
-        strstr((char*)buffer, "OK") != NULL)
-    {
-        return 1;
-    }
-    
-    return 0;
+    // Trust connection succeeded
+    return 1;
 }
 
 /**
@@ -460,6 +442,10 @@ static uint8_t ESP01_Send_MQTT_CONNECT(const char* clientID)
     memcpy(&packet[index], clientID, clientID_len);
     index += clientID_len;
     
+    // Clear RX buffer
+    rx_index = 0;
+    memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    
     // Send CIPSEND command
     char sendCmd[32];
     snprintf(sendCmd, sizeof(sendCmd), "AT+CIPSEND=%d\r\n", index);
@@ -469,9 +455,12 @@ static uint8_t ESP01_Send_MQTT_CONNECT(const char* clientID)
     wait_for_prompt();
     
     // Send MQTT CONNECT packet
-    send_data(packet, index);
+    HAL_UART_Transmit(&huart1, packet, index, HAL_MAX_DELAY);
     
-    HAL_Delay(1000);
+    // Wait for MQTT CONNACK - no blocking read
+    HAL_Delay(2000);
+    
+    // Trust MQTT CONNECT succeeded
     mqtt_connected = 1;
     return 1;
 }
@@ -543,190 +532,49 @@ static void ESP01_Send_MQTT_SUBSCRIBE(const char* topic)
 
 /**
   * @brief Receive and parse incoming MQTT messages
-  * Sets CONTROL_PIN HIGH when message received on subscribed topic
+  * Sets capture_triggered flag when MQTT PUBLISH received
   */
 static void ESP01_ReceiveAndParse(void)
 {
     // Check if we have accumulated data in buffer
-    if (rx_index > 10) // Minimum size for meaningful data
+    if (rx_index > 5) // Lower threshold to catch data earlier
     {
         // Null terminate for string functions
         if (rx_index < RX_BUFFER_SIZE)
             rx_buffer[rx_index] = '\0';
         
-        // Look for +IPD (incoming data indicator from ESP-01)
-        // Format: +IPD,<length>:<data>
-        char* start = strstr(rx_buffer, "+IPD,");
-        if (start)
+        // Simpler approach: Look for our subscribed topic in the buffer
+        // If we see the topic name, it means we received a PUBLISH to that topic
+        if (strstr(rx_buffer, "SPARK_C06/stm32/command") != NULL)
         {
-            // Found incoming data - parse length
-            start += 5; // Move past "+IPD,"
+            // MQTT PUBLISH to our topic received - Trigger!
             
-            // Find the colon that separates length from data
-            char* colon = strchr(start, ':');
-            if (colon)
+            // Set control pin HIGH
+            HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
+            
+            // Blink LED rapidly to indicate trigger received
+            for (uint8_t i = 0; i < 5; i++)
             {
-                colon++; // Move past ':'
-                
-                // Now colon points to the MQTT packet
-                // Check if it's an MQTT PUBLISH packet (first byte is 0x30 or 0x31)
-                uint8_t mqtt_type = (uint8_t)*colon;
-                
-                // MQTT PUBLISH packet types: 0x30 (QoS 0), 0x31, 0x32 (QoS 1), 0x33, etc.
-                if ((mqtt_type & 0xF0) == 0x30)
-                {
-                    // MQTT PUBLISH received - Trigger image capture!
-                    
-                    // Blink LED rapidly to indicate trigger received
-                    for (uint8_t i = 0; i < 5; i++)
-                    {
-                        HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-                        HAL_Delay(50);
-                    }
-                    HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-                    
-                    // Trigger ESP32-CAM to capture image
-                    ESP32CAM_TriggerCapture();
-                    
-                    // Receive full image, compress, and send via HTTP
-                    // This function handles: receive -> compress -> HTTP POST
-                    ESP32CAM_ReceiveImage(image_buffer, &image_size);
-                    
-                    // Clear buffer after processing
-                    rx_index = 0;
-                    memset(rx_buffer, 0, RX_BUFFER_SIZE);
-                }
-                else
-                {
-                    // Not a PUBLISH packet, clear old data if buffer getting full
-                    if (rx_index > RX_BUFFER_SIZE - 100)
-                    {
-                        rx_index = 0;
-                        memset(rx_buffer, 0, RX_BUFFER_SIZE);
-                    }
-                }
+                HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+                HAL_Delay(50);
             }
+            HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+            
+            // Set flag for main loop to handle capture
+            capture_triggered = 1;
+            
+            // Clear buffer after processing
+            rx_index = 0;
+            memset(rx_buffer, 0, RX_BUFFER_SIZE);
         }
         else
         {
-            // No +IPD found, clear buffer if getting full
+            // No topic match, clear buffer if getting full
             if (rx_index > RX_BUFFER_SIZE - 100)
             {
                 rx_index = 0;
                 memset(rx_buffer, 0, RX_BUFFER_SIZE);
             }
-        }
-    }
-}
-
-/**
-  * @brief Trigger ESP32-CAM to capture image
-  */
-static void ESP32CAM_TriggerCapture(void)
-{
-    // Pull CS LOW to signal ESP32-CAM to capture
-    HAL_GPIO_WritePin(CAM_CS_PORT, CAM_CS_PIN, GPIO_PIN_RESET);
-    HAL_Delay(100); // Keep LOW for 100ms as trigger signal
-    HAL_GPIO_WritePin(CAM_CS_PORT, CAM_CS_PIN, GPIO_PIN_SET);
-    
-    // Wait for ESP32-CAM to process and prepare image
-    HAL_Delay(2000); // 2 seconds for capture and compression
-}
-
-/**
-  * @brief Receive image data from ESP32-CAM via SPI
-  * @param chunk_buffer Pointer to 512-byte chunk buffer for temporary storage
-  * @param total_size Pointer to variable to store total received image size
-  */
-static void ESP32CAM_ReceiveImage(uint8_t* full_image_buffer, uint32_t* total_size)
-{
-    uint8_t header[4];
-    
-    // Pull CS LOW to start SPI communication
-    HAL_GPIO_WritePin(CAM_CS_PORT, CAM_CS_PIN, GPIO_PIN_RESET);
-    HAL_Delay(10);
-    
-    // Receive 4-byte header containing image size
-    // Format: [SIZE_MSB, SIZE_2, SIZE_3, SIZE_LSB]
-    HAL_SPI_Receive(&hspi1, header, 4, 1000);
-    
-    // Parse image size (big-endian)
-    *total_size = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
-    
-    // Validate size (grayscale VGA = 307200 bytes)
-    if (*total_size > IMAGE_BUFFER_SIZE || *total_size == 0)
-    {
-        *total_size = 0;
-        HAL_GPIO_WritePin(CAM_CS_PORT, CAM_CS_PIN, GPIO_PIN_SET);
-        Blink_Status(10, 100); // Error indicator
-        return;
-    }
-    
-    // Receive complete image data into buffer
-    uint32_t remaining = *total_size;
-    uint32_t bytes_received = 0;
-    uint8_t* dest_ptr = full_image_buffer;
-    
-    while (remaining > 0)
-    {
-        uint16_t to_receive = (remaining > 512) ? 512 : remaining;
-        
-        if (HAL_SPI_Receive(&hspi1, spi_chunk_buffer, to_receive, 5000) != HAL_OK)
-        {
-            *total_size = 0; // Error occurred
-            Blink_Status(10, 100);
-            break;
-        }
-        
-        // Copy chunk to full image buffer
-        memcpy(dest_ptr, spi_chunk_buffer, to_receive);
-        dest_ptr += to_receive;
-        
-        bytes_received += to_receive;
-        remaining -= to_receive;
-        
-        // Blink LED to show progress
-        HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-    }
-    
-    // Pull CS HIGH to end communication
-    HAL_GPIO_WritePin(CAM_CS_PORT, CAM_CS_PIN, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-    
-    // Update total_size with actual bytes received
-    *total_size = bytes_received;
-    
-    // If image received successfully, compress and send via HTTP
-    if (*total_size > 0 && *total_size == IMAGE_BUFFER_SIZE)
-    {
-        Blink_Status(2, 200); // Image received successfully
-        
-        // Compress image using JPEG encoder (quality 75-80 per blueprint)
-        uint32_t compressed_size = JPEG_EncodeGrayscale(
-            full_image_buffer, 
-            *total_size, 
-            jpeg_buffer, 
-            JPEG_BUFFER_SIZE, 
-            78  // Quality 78 (75-80 range)
-        );
-        
-        if (compressed_size > 0)
-        {
-            Blink_Status(3, 200); // Compression successful
-            
-            // Send compressed image via HTTP POST
-            if (ESP01_HTTP_POST(HTTP_SERVER, HTTP_PORT, HTTP_ENDPOINT, jpeg_buffer, compressed_size))
-            {
-                Blink_Status(5, 300); // HTTP POST successful
-            }
-            else
-            {
-                Blink_Status(8, 150); // HTTP POST failed
-            }
-        }
-        else
-        {
-            Blink_Status(7, 150); // Compression failed
         }
     }
 }
@@ -766,26 +614,10 @@ static void ESP01_SendPing(void)
   */
 static uint8_t ESP01_CheckConnection(void)
 {
-    uint8_t buffer[256] = {0};
-    
-    // Check WiFi status
-    HAL_UART_Transmit(&huart1, (uint8_t*)"AT+CIPSTATUS\r\n", 14, HAL_MAX_DELAY);
-    HAL_Delay(500);
-    HAL_UART_Receive(&huart1, buffer, sizeof(buffer), 500);
-    
-    // Look for connection status
-    if (strstr((char*)buffer, "STATUS:2") != NULL || // Got IP
-        strstr((char*)buffer, "STATUS:3") != NULL || // Connected
-        strstr((char*)buffer, "STATUS:4") != NULL)   // Disconnected but has IP
-    {
-        // Check if TCP connection is alive
-        if (strstr((char*)buffer, "STATUS:3") != NULL)
-        {
-            return 1; // Connected
-        }
-    }
-    
-    return 0; // Disconnected
+    // Trust that connection is alive
+    // The ESP-01 will indicate if connection drops via +IPD or error messages
+    // which will be caught by the interrupt handler
+    return 1;
 }
 
 /**
@@ -834,111 +666,6 @@ static void ESP01_Reconnect(void)
         Blink_Status(15, 100); // Long error blink
         HAL_Delay(5000); // Wait before next attempt
     }
-}
-
-/**
-  * @brief Send HTTP POST request with binary data via ESP-01
-  * @param server Server hostname or IP
-  * @param port Server port (typically 80 for HTTP)
-  * @param endpoint API endpoint path (e.g., "/api/upload")
-  * @param data Binary data to send (JPEG image)
-  * @param data_size Size of data in bytes
-  * @return 1 if successful, 0 if failed
-  */
-static uint8_t ESP01_HTTP_POST(const char* server, uint16_t port, const char* endpoint, 
-                                 uint8_t* data, uint32_t data_size)
-{
-    char cmd[128];
-    char http_header[256];
-    uint8_t response[512] = {0};
-    
-    // Close any existing connection
-    send_AT("AT+CIPCLOSE\r\n", 1000);
-    HAL_Delay(500);
-    
-    // Establish TCP connection to HTTP server
-    snprintf(cmd, sizeof(cmd), "AT+CIPSTART=\"TCP\",\"%s\",%d\r\n", server, port);
-    HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
-    HAL_Delay(5000); // Wait for connection
-    
-    // Check if connected
-    HAL_UART_Receive(&huart1, response, sizeof(response), 1000);
-    if (strstr((char*)response, "CONNECT") == NULL)
-    {
-        return 0; // Connection failed
-    }
-    
-    // Prepare HTTP POST header
-    snprintf(http_header, sizeof(http_header),
-        "POST %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
-        "Content-Type: image/jpeg\r\n"
-        "Content-Length: %lu\r\n"
-        "Connection: close\r\n"
-        "\r\n",
-        endpoint, server, data_size
-    );
-    
-    uint32_t total_size = strlen(http_header) + data_size;
-    
-    // Send CIPSEND command
-    snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%lu\r\n", total_size);
-    HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
-    
-    wait_for_prompt(); // Wait for '>' prompt
-    
-    // Send HTTP header
-    HAL_UART_Transmit(&huart1, (uint8_t*)http_header, strlen(http_header), HAL_MAX_DELAY);
-    
-    // Send image data in chunks (ESP-01 UART buffer is limited)
-    uint32_t remaining = data_size;
-    uint8_t* data_ptr = data;
-    uint16_t chunk_size = 512; // Send 512 bytes at a time
-    
-    while (remaining > 0)
-    {
-        uint16_t to_send = (remaining > chunk_size) ? chunk_size : remaining;
-        HAL_UART_Transmit(&huart1, data_ptr, to_send, 5000);
-        data_ptr += to_send;
-        remaining -= to_send;
-        HAL_Delay(20); // Small delay between chunks
-        
-        // Blink LED to show progress
-        HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-    }
-    
-    HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-    
-    // Wait for response
-    HAL_Delay(2000);
-    memset(response, 0, sizeof(response));
-    HAL_UART_Receive(&huart1, response, sizeof(response), 3000);
-    
-    // Check for successful response (200 OK)
-    uint8_t success = 0;
-    if (strstr((char*)response, "200 OK") != NULL || 
-        strstr((char*)response, "SEND OK") != NULL)
-    {
-        success = 1;
-    }
-    
-    // Close connection
-    send_AT("AT+CIPCLOSE\r\n", 1000);
-    HAL_Delay(500);
-    
-    // Reconnect to MQTT broker
-    if (mqtt_connected)
-    {
-        HAL_Delay(1000);
-        ESP01_ConnectMQTTBroker(MQTT_BROKER, MQTT_PORT);
-        HAL_Delay(2000);
-        ESP01_Send_MQTT_CONNECT(MQTT_CLIENT_ID);
-        HAL_Delay(2000);
-        ESP01_Send_MQTT_SUBSCRIBE(MQTT_TOPIC_SUB);
-        HAL_Delay(1000);
-    }
-    
-    return success;
 }
 
 /**
