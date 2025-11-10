@@ -15,7 +15,7 @@ data class EditPassUiState(
     val showNew: Boolean = false,
     val showConfirm: Boolean = false,
     val loading: Boolean = false,
-    val success: Boolean = false,          // ⬅️ penting untuk navigasi balik
+    val success: Boolean = false,
     val errorMessage: String? = null
 )
 

@@ -35,7 +35,6 @@ fun EditPassPage(
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
 
-    // ⬇️ Jika sukses -> panggil callback untuk kembali ke halaman Login
     LaunchedEffect(ui.success) {
         if (ui.success) onBackToLogin()
     }
@@ -107,7 +106,6 @@ fun EditPassPage(
 
                     Spacer(Modifier.height(16.dp))
 
-                    // Email
                     OutlinedTextField(
                         value = ui.email,
                         onValueChange = vm::onEmailChanged,
@@ -118,7 +116,6 @@ fun EditPassPage(
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Password baru
                     OutlinedTextField(
                         value = ui.newPassword,
                         onValueChange = vm::onNewPasswordChanged,
@@ -140,7 +137,6 @@ fun EditPassPage(
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Konfirmasi password
                     OutlinedTextField(
                         value = ui.confirmPassword,
                         onValueChange = vm::onConfirmPasswordChanged,

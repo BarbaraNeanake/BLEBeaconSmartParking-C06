@@ -2,6 +2,8 @@ package com.example.smartparking.ui.signuppage
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.smartparking.data.model.User
+import com.example.smartparking.data.repository.UserRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,18 +24,38 @@ data class SignUpUiState(
     val canSubmit: Boolean = false
 )
 
-class SignUpViewModel : ViewModel() {
+class SignUpViewModel(
+    private val repo: UserRepository
+) : ViewModel() {
 
     private val _ui = MutableStateFlow(SignUpUiState())
     val ui = _ui.asStateFlow()
 
-    /* ----------------- Input handlers ----------------- */
+
+
     fun onName(v: String) = _ui.update {
-        it.copy(name = v, error = null, canSubmit = canSubmit(v, it.email, it.licensePlate, it.password, it.confirmPassword))
+        it.copy(
+            name = v,
+            error = null,
+            canSubmit = canSubmit(
+                v,
+                it.email,
+                it.licensePlate,
+                it.password,
+                it.confirmPassword)
+        )
     }
 
     fun onEmail(v: String) = _ui.update {
-        it.copy(email = v.trim(), error = null, canSubmit = canSubmit(it.name, v.trim(), it.licensePlate, it.password, it.confirmPassword))
+        it.copy(
+            email = v.trim(),
+            error = null,
+            canSubmit = canSubmit(
+                it.name,
+                v.trim(),
+                it.licensePlate,
+                it.password,
+                it.confirmPassword))
     }
 
     fun onLicensePlate(v: String) = _ui.update {
@@ -66,7 +88,23 @@ class SignUpViewModel : ViewModel() {
 
         _ui.update { it.copy(loading = true, error = null) }
 
-        // TODO: sambungkan ke repository-mu di sini (simulasi dulu)
+        val newUser = User(
+            nama = s.name.trim(),
+            email = s.email.trim(),
+            license = s.licensePlate.trim().uppercase(),
+            password = s.password.trim(),
+            roles = "Mahasiswa"
+        )
+
+        val resp = repo.createUser(newUser)
+
+        if (resp.isSuccessful) {
+            _ui.update { it.copy(loading = false, registered = true) }
+        } else {
+            val msg = "Gagal register: ${resp.code()} ${resp.message()}"
+            _ui.update { it.copy(loading = false, error = msg) }
+        }
+
         delay(900)
 
         _ui.update { it.copy(loading = false, registered = true) }

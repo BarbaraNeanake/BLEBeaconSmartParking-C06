@@ -60,7 +60,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        // HEADER
         item {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -87,7 +86,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
 
         when {
             ui.loading -> {
-                // loading spinner
                 item {
                     Box(
                         modifier = Modifier
@@ -101,7 +99,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
             }
 
             ui.error != null -> {
-                // ✅ tampilkan pesan “tidak ada pelanggaran” juga di sini
                 item {
                     Text(
                         text = ui.error ?: "-",
@@ -112,10 +109,7 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
                     )
                 }
             }
-
-
             else -> {
-                // CARD JUDUL
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -139,8 +133,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
                         }
                     }
                 }
-
-                // CARD TABEL (NAVY)
                 item {
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -155,7 +147,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
                                 .fillMaxWidth()
                                 .padding(14.dp)
                         ) {
-                            // header
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -193,7 +184,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
                             }
                             Divider(color = Color(0x33FFFFFF))
 
-                            // LIST DATA — mengikuti jumlah data dari DB
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -238,7 +228,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
                     }
                 }
 
-                // GAMBAR DI BAWAH TABEL
                 item {
                     Box(
                         modifier = Modifier
@@ -259,7 +248,6 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
     }
 }
 
-/* ===== PREVIEW ===== */
 @Preview(
     showBackground = true,
     uiMode = Configuration.UI_MODE_NIGHT_NO,

@@ -27,7 +27,6 @@ import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 
-// Pilihan warna aman (navy / hitam)
 private val SparkNavy = Color(0xFF0A2342)
 private val SparkBlack = Color(0xFF111111)
 
@@ -102,8 +101,6 @@ fun LandingPageScreen(
     }
 }
 
-/* ============================== PREVIEWS ============================== */
-
 @Preview(
     name = "Landing – Navy",
     uiMode = Configuration.UI_MODE_NIGHT_NO,
@@ -118,12 +115,12 @@ private fun PreviewLandingNavy() {
 
 @Preview(
     name = "Landing – Black (still light)",
-    uiMode = Configuration.UI_MODE_NIGHT_NO,   // <— paksa light
+    uiMode = Configuration.UI_MODE_NIGHT_NO,
     showBackground = true
 )
 @Composable
 private fun PreviewLandingBlack() {
-    SmartParkingTheme(darkTheme = false, dynamicColor = false) {  // <— paksa light
+    SmartParkingTheme(darkTheme = false, dynamicColor = false) {
         LandingPageScreen(brandColor = SparkBlack)
     }
 }

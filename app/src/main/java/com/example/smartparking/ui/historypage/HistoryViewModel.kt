@@ -45,8 +45,6 @@ class HistoryViewModel(
                     _ui.value = HistoryUiState(loading = false, error = "Belum login.")
                     return@launch
                 }
-
-                // ✅ panggil API baru
                 val response = RetrofitProvider.logActivityApi
                     .getLogById(session.userId ?: -1) // <-- pakai userId
 

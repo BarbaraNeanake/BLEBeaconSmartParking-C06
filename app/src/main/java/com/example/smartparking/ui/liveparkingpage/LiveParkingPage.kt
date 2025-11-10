@@ -28,9 +28,6 @@ import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import kotlin.math.roundToInt
 
-// ----------------------------
-// Data model tetap (koordinat statis)
-// ----------------------------
 data class Slot(
     val id: String,
     val xPct: Float,
@@ -49,40 +46,31 @@ data class Lot(
     val slots: List<Slot>
 )
 
-// ----------------------------
-// COMPOSABLE utama
-// ----------------------------
 @Composable
 fun LiveParkingPage(
     vm: LiveParkingViewModel = viewModel(),
     beaconVM: BeaconViewModel = viewModel(),
     currentUserId: Int? = null
 ) {
-    // State dari backend
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val statusById by vm.statusById.collectAsStateWithLifecycle()
 
-    // State dari BLE
     val detectedSlot by beaconVM.detectedSlot.collectAsStateWithLifecycle()
 
-    // Mulai BLE scanning otomatis
     DisposableEffect(Unit) {
         beaconVM.startScan()
         onDispose { beaconVM.stopScan() }
     }
 
-    // Saat beacon mendeteksi slot baru → update backend
     LaunchedEffect(detectedSlot) {
         if (!detectedSlot.equals("Belum terdeteksi", ignoreCase = true)) {
             vm.applyBeaconDetection(detectedSlot, currentUserId)
         }
     }
 
-    // Base lot dengan koordinat tetap
     val baseLot = remember { sampleLot(R.drawable.liveparkingmap) }
 
-    // Update warna berdasarkan status backend
     val coloredLot = remember(baseLot, statusById) {
         val updatedSlots = baseLot.slots.map { s ->
             val status = statusById[s.id]?.lowercase()
@@ -95,9 +83,6 @@ fun LiveParkingPage(
         baseLot.copy(slots = updatedSlots, used = used, free = free)
     }
 
-    // ----------------------------
-    // UI: background gradasi + header (logo + judul center)
-    // ----------------------------
     val bg = remember {
         Brush.verticalGradient(
             listOf(
@@ -121,7 +106,6 @@ fun LiveParkingPage(
                 .padding(top = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Logo UGM (center)
             Image(
                 painter = painterResource(id = R.drawable.ugm_logo),
                 contentDescription = "UGM Logo",
@@ -131,7 +115,6 @@ fun LiveParkingPage(
                     .padding(top = 4.dp, bottom = 6.dp)
             )
 
-            // Judul halaman (center)
             Text(
                 text = "Live Parking",
                 style = MaterialTheme.typography.titleLarge.copy(
@@ -148,7 +131,6 @@ fun LiveParkingPage(
 
             Spacer(Modifier.height(14.dp))
 
-            // Konten dinamis — TIDAK diubah
             when {
                 loading -> CircularProgressIndicator()
                 error != null -> {
@@ -166,9 +148,6 @@ fun LiveParkingPage(
     }
 }
 
-// ----------------------------
-// CARD (TIDAK DIUBAH)
-// ----------------------------
 @Composable
 private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
     Card(
@@ -238,9 +217,6 @@ private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
     }
 }
 
-// ----------------------------
-// KOORDINAT TETAP (TIDAK DIUBAH)
-// ----------------------------
 private fun sampleLot(@DrawableRes mapRes: Int): Lot {
     val slots = listOf(
         Slot("S1", 0.14f, 0.50f, 0.10f, 0.33f),

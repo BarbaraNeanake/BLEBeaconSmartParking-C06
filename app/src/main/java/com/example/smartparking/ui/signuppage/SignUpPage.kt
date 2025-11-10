@@ -52,7 +52,6 @@ fun SignUpPage(
     )
 }
 
-/** ---------- Stateless UI (Preview friendly) ---------- */
 @Composable
 fun SignUpContent(
     ui: SignUpUiState,
@@ -66,7 +65,6 @@ fun SignUpContent(
     onRegister: () -> Unit,
     onBackToLogin: () -> Unit
 ) {
-    // Background gradient yang sama seperti halaman lain
     val gradient = remember {
         Brush.verticalGradient(
             listOf(
@@ -83,7 +81,6 @@ fun SignUpContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // ===== Header (logo)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -99,7 +96,6 @@ fun SignUpContent(
             )
         }
 
-        // ===== Card form (putih + bayangan) =====
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -114,7 +110,6 @@ fun SignUpContent(
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Title & link login (center)
                 Text(
                     "Sign Up",
                     style = MaterialTheme.typography.headlineLarge.copy(
@@ -139,7 +134,6 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(16.dp))
 
-                // Full Name
                 OutlinedTextField(
                     value = ui.name,
                     onValueChange = onName,
@@ -150,7 +144,6 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Email
                 OutlinedTextField(
                     value = ui.email,
                     onValueChange = onEmail,
@@ -161,7 +154,6 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
-                // License Plate (ganti Birth of Date)
                 OutlinedTextField(
                     value = ui.licensePlate,
                     onValueChange = onPlate,
@@ -172,7 +164,6 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Password
                 OutlinedTextField(
                     value = ui.password,
                     onValueChange = onPassword,
@@ -193,7 +184,6 @@ fun SignUpContent(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Confirm Password
                 OutlinedTextField(
                     value = ui.confirmPassword,
                     onValueChange = onConfirmPassword,
@@ -246,7 +236,6 @@ fun SignUpContent(
     }
 }
 
-/* -------- PREVIEW -------- */
 @Preview(
     showBackground = true,
     uiMode = Configuration.UI_MODE_NIGHT_NO,

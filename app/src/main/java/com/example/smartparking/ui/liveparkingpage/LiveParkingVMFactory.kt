@@ -1,4 +1,3 @@
-// LiveParkingVMFactory.kt (taruh di paket yang sama dengan ViewModel)
 package com.example.smartparking.ui.liveparkingpage
 
 import androidx.lifecycle.ViewModel

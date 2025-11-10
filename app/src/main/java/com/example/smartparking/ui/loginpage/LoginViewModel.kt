@@ -56,7 +56,7 @@ class LoginViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, errorMessage = null) }
 
-            val result = userRepository.login(email, password) // Result<Unit>
+            val result = userRepository.login(email, password)
             if (result.isSuccess) {
                 _uiState.update { it.copy(loading = false, isLoggedIn = true) }
             } else {
@@ -75,7 +75,6 @@ class LoginViewModel(
     }
 }
 
-/** Factory supaya VM bisa di-construct dengan repo dari MainActivity */
 class LoginVMFactory(private val repo: UserRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
