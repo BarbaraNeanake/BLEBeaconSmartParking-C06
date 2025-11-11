@@ -63,7 +63,8 @@ HF_TOKEN = os.environ.get("HF_TOKEN", None)
 MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models_cache")
 
 # JSON storage file for post-test endpoint
-JSON_STORAGE_FILE = os.environ.get("JSON_STORAGE_FILE", "stored_data.json")
+# Use /data directory for persistent storage in Hugging Face Spaces
+JSON_STORAGE_FILE = os.environ.get("JSON_STORAGE_FILE", "/data/stored_data.json")
 
 # Global inference engine
 inference_engine = None
@@ -115,6 +116,11 @@ client.tls_set(tls_version=ssl.PROTOCOL_TLS)
 async def startup_event():
     """Connect to MQTT and initialize inference engine when the app starts."""
     global inference_engine
+    
+    # Ensure persistent data directory exists
+    data_dir = Path(JSON_STORAGE_FILE).parent
+    os.makedirs(data_dir, exist_ok=True)
+    logger.info(f"✅ Data directory ready: {data_dir}")
     
     # Initialize MQTT
     if not all([MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD]):
