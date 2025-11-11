@@ -11,7 +11,7 @@
 #include "lwip/sys.h"
 #include "driver/gpio.h"
 #include "mqtt_client.h"
-#include "esp_crt_bundle.h" // <-- Include for the certificate bundle
+#include "esp_crt_bundle.h"
 
 // =================== Configuration ===================
 // --- Wi-Fi Credentials
