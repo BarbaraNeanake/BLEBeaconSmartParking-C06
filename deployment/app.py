@@ -292,10 +292,20 @@ async def store_test_data(payload: TestDataPayload):
         
         # Read existing data if file exists
         if file_path.exists():
-            with open(file_path, 'r', encoding='utf-8') as f:
-                existing_data = json.load(f)
-                if not isinstance(existing_data, list):
-                    existing_data = [existing_data]
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:  # Check if file is not empty
+                        existing_data = json.loads(content)
+                        if not isinstance(existing_data, list):
+                            existing_data = [existing_data]
+                    else:
+                        # File exists but is empty
+                        existing_data = []
+            except json.JSONDecodeError:
+                # File is corrupted, start fresh
+                logger.warning(f"⚠️ JSON file corrupted, starting fresh")
+                existing_data = []
         else:
             existing_data = []
         
