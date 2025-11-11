@@ -35,8 +35,8 @@ class Config:
     test_split: float = 0.1
     
     # Inference parameters - Simple PoC settings
-    conf_threshold: float = 0.5
-    nms_threshold: float = 0.45
+    conf_threshold: float = 0.7
+    nms_threshold: float = 0.35
     
     # Paths
     dataset_root: str = "datasets/COCO_car"

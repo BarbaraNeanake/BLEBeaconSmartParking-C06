@@ -62,3 +62,5 @@ deployment/test_engine.py
 /comvis/test_results
 /comvis/utils/__pycache__
 /comvis/results
+comvis/analyze_dataset.py
+comvis/car_size_distribution.png
