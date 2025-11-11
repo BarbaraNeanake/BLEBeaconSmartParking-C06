@@ -335,6 +335,62 @@ async def store_test_data(payload: TestDataPayload):
         logger.error(f"❌ Failed to store data: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to store data: {str(e)}")
 
+@app.get("/get-test")
+async def get_test_data():
+    """
+    Retrieve all stored data from the JSON file.
+    """
+    try:
+        file_path = Path(JSON_STORAGE_FILE)
+        
+        if not file_path.exists():
+            return {
+                "status": "success",
+                "message": "No data file found",
+                "data": [],
+                "total_entries": 0,
+                "file": str(file_path)
+            }
+        
+        # Read the file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            
+        if not content:
+            return {
+                "status": "success",
+                "message": "File exists but is empty",
+                "data": [],
+                "total_entries": 0,
+                "file": str(file_path)
+            }
+        
+        # Parse JSON
+        data = json.loads(content)
+        if not isinstance(data, list):
+            data = [data]
+        
+        return {
+            "status": "success",
+            "message": "Data retrieved successfully",
+            "data": data,
+            "total_entries": len(data),
+            "file": str(file_path)
+        }
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Failed to parse JSON: {e}")
+        return {
+            "status": "error",
+            "message": f"JSON file is corrupted: {str(e)}",
+            "data": [],
+            "total_entries": 0,
+            "file": str(file_path)
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to read data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
