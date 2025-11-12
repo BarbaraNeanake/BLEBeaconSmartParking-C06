@@ -1,29 +1,119 @@
 # STM32F401CCU6 Firmware Protocol Documentation
 
 ## Overview
-This firmware implements an IoT image capture system using STM32F401CCU6 (Black Pill) as the main controller, coordinating between ESP-01 (WiFi), ESP32-CAM (camera), and a remote HTTP server.
+This firmware implements a smart parking IoT system using STM32F401CCU6 (Black Pill) as an intelligent debouncing controller. The system receives occupancy sensor data via MQTT (ESP-01), implements a 4-state stabilization machine to handle parking alignment maneuvers, and triggers ESP32-CAM to capture and upload parking events.
 
 **Hardware:** STM32F401CCU6 (64KB RAM, 256KB Flash, 84MHz)  
-**Firmware Version:** 1.0  
-**Date:** November 9, 2025
+**Firmware Version:** 2.0 - Smart Parking State Machine  
+**Date:** November 12, 2025
+
+---
+
+## Key Architectural Changes (v2.0)
+
+### What Changed from v1.0?
+
+**v1.0 Architecture (DEPRECATED):**
+```
+Sensor → MQTT → STM32 → SPI → ESP32-CAM
+                  ↓
+            Image buffer (76KB)
+                  ↓
+            ESP-01 → HTTP POST
+```
+**Problems:**
+- ❌ ESP-01 doesn't support HTTPS (backend requires HTTPS)
+- ❌ STM32 buffers entire image (76KB RAM usage)
+- ❌ UART bottleneck @ 115200 baud (~9.6 seconds)
+- ❌ Simple trigger → multiple captures per parking event
+- ❌ No debouncing for parking alignment maneuvers
+
+**v2.0 Architecture (CURRENT):**
+```
+Sensor → MQTT → STM32 (State Machine) → 100ms pulse → ESP32-CAM
+                  ↓                                        ↓
+            Debouncing logic                    Capture + WiFi + HTTPS
+            (2s + 5s adaptive)                             ↓
+                                                        Backend
+```
+**Benefits:**
+- ✅ ESP32-CAM handles HTTPS natively (backend compatible)
+- ✅ STM32 only stores state (~12 bytes, not 76KB)
+- ✅ No UART bottleneck (ESP32 native WiFi)
+- ✅ Smart debouncing → ONE image per parking event
+- ✅ 4-state machine handles real parking behavior
+- ✅ Multi-slot monitoring with wildcard subscription
+- ✅ Adaptive cooldown exits early when car leaves
+- ✅ Fast response (2s stabilization, 5s cooldown)
+- ✅ 43% RAM reduction (776 bytes vs 1,372 bytes)
+- ✅ 22% Flash reduction (10,012 bytes vs 12,756 bytes)
+
+### Role Separation
+
+| Component | v1.0 Role | v2.0 Role |
+|-----------|-----------|-----------|
+| **STM32** | Controller + Image Buffer + HTTP Client | **State Machine Controller Only** |
+| **ESP-01** | WiFi + MQTT + HTTP Transport | **MQTT Gateway Only** |
+| **ESP32-CAM** | Camera Sensor Only | **Camera + WiFi + JPEG + HTTPS + Processing** |
+
+### Why State Machine?
+
+**Real-World Parking Scenario:**
+1. Driver approaches slot → sensor detects (1st trigger)
+2. Driver reverses to align → sensor clears momentarily
+3. Driver moves forward → sensor detects again (2nd trigger)
+4. Driver adjusts angle → sensor fluctuates (3rd, 4th triggers)
+5. Car finally parked → sensor stable for 2 seconds
+
+**Without Debouncing:** 4+ images captured  
+**With State Machine:** 1 image captured (after 2s stability)
+
+**Multi-Slot Consideration:**
+- Camera monitors multiple slots (A01, A02, A03) with wide-angle lens
+- If multiple cars arrive within 2s window, last car to stabilize triggers capture
+- Single image captures ALL cars in view (backend processes to detect individual slots)
+- Adaptive cooldown: exits early when car leaves (allows fast queue processing)
 
 ---
 
 ## System Architecture
 
 ```
-┌─────────────┐        ┌─────────────┐        ┌─────────────┐
-│   ESP-01    │◄──────►│   STM32F4   │◄──────►│ ESP32-CAM   │
-│   (WiFi)    │  UART  │  (Controller)│   SPI  │  (Camera)   │
-└─────────────┘ 115200 └─────────────┘  ~1MHz └─────────────┘
-      │                       │
-      │ MQTT/HTTP             │ LED Status
-      ▼                       ▼
-┌─────────────┐        ┌─────────────┐
-│   Broker    │        │   PC13 LED  │
-│ HiveMQ.com  │        │  Indicator  │
-└─────────────┘        └─────────────┘
+┌──────────────────┐
+│  On-Slot Sensors │ (Multiple slots: A01, A02, A03, ...)
+│  (Occupancy)     │
+└────────┬─────────┘
+         │ MQTT: SPARK_C06/isOccupied/{slotID}
+         │ Payload: "1" (occupied) / "0" (empty)
+         ▼
+┌─────────────┐        ┌─────────────────────┐        ┌─────────────┐
+│   ESP-01    │◄──────►│     STM32F401       │───────►│ ESP32-CAM   │
+│ (WiFi/MQTT) │  UART  │ (State Machine)     │ Trigger│  (Camera)   │
+│             │ 115200 │                     │ PB12   │             │
+└─────────────┘        │  States:            │ 100ms  └─────────────┘
+      ▲                │  • IDLE             │ pulse        │
+      │                │  • STABILIZING (2s) │              │
+┌─────────────┐        │  • CONFIRMED        │              │
+│ MQTT Broker │        │  • COOLDOWN (5s)    │              │
+│ HiveMQ.com  │        └─────────┬───────────┘              │
+└─────────────┘                  │                          │
+                                 │ PC13 LED                 │ WiFi + HTTPS
+                                 ▼                          ▼
+                          ┌─────────────┐          ┌──────────────┐
+                          │  Status LED │          │   Backend    │
+                          │  Indicator  │          │ Hugging Face │
+                          └─────────────┘          └──────────────┘
 ```
+
+**Smart Parking Flow:**
+1. On-slot sensor publishes "1" → STM32 enters STABILIZING
+2. Additional "1" messages → Reset 2s timer (car still aligning)
+3. "0" message during STABILIZING → Return to IDLE (car left)
+4. 2s stable → CONFIRMED → Trigger ESP32-CAM (100ms pulse)
+5. ESP32-CAM captures VGA image → JPEG compress → HTTPS POST
+6. STM32 enters COOLDOWN (5s minimum) → Ignore all "1" messages
+7. If "0" received during COOLDOWN → Exit early to IDLE (fast queue processing)
+8. After 5s (or early exit) → Return to IDLE (ready for next parking event)
 
 ---
 
@@ -40,18 +130,21 @@ This firmware implements an IoT image capture system using STM32F401CCU6 (Black 
 **Baud Rate:** 115200  
 **Protocol:** AT Commands + Raw TCP/IP
 
-### ESP32-CAM (Camera Module) - SPI Interface
+### ESP32-CAM (Camera Module) - Trigger Interface
 | STM32 Pin | Function | ESP32-CAM Pin | Description |
 |-----------|----------|---------------|-------------|
-| PB12 | SPI1_NSS (CS) | GPIO15 | Chip Select / Trigger |
-| PB13 | SPI1_SCK | GPIO14 | SPI Clock |
-| PB14 | SPI1_MISO | GPIO12 | Data from Camera |
-| PB15 | SPI1_MOSI | GPIO13 | Data to Camera |
+| PB12 | GPIO Output | GPIO15 | **Trigger Signal (100ms HIGH pulse)** |
+| PB13 | SPI1_SCK | GPIO12 | SPI Clock (PCB trace present, unused) |
+| PB14 | SPI1_MISO | GPIO14 | Data from Camera (PCB trace present, unused) |
+| PB15 | SPI1_MOSI | GPIO13 | Data to Camera (PCB trace present, unused) |
 | GND | Ground | GND | Common ground |
+| 5V | Power | 5V | Power from booster (via 470µF + 100µF caps) |
 
-**SPI Speed:** ~5.25 MHz (84MHz / 16)  
-**SPI Mode:** Mode 0 (CPOL=0, CPHA=0)  
-**CS Logic:** Active LOW
+**Current Implementation:**
+- **Trigger Protocol:** 100ms HIGH pulse on PB12 → ESP32-CAM GPIO15
+- **SPI Traces:** Present on PCB for future bidirectional communication
+- **Data Flow:** ESP32-CAM handles capture → WiFi → HTTPS upload independently
+- **No SPI Transfer:** Image data never sent to STM32 (ESP32 has 520KB SRAM)
 
 ### Status Indicator
 | STM32 Pin | Function | Description |
@@ -120,145 +213,190 @@ This firmware implements an IoT image capture system using STM32F401CCU6 (Black 
 0xC0 0x00              // PINGREQ (sent every 30 seconds)
 ```
 
-#### MQTT Topics
-- **Subscribe:** `SPARK_C06/stm32/command`
+#### MQTT Topics (Smart Parking System)
+- **Subscribe:** `SPARK_C06/isOccupied/*` (wildcard - monitors ALL parking slots)
+  - Example messages: `SPARK_C06/isOccupied/A01`, `SPARK_C06/isOccupied/B12`
+- **Publish:** `SPARK_C06/camera/status` (camera system status)
 - **Client ID:** `SPARK_C06`
 - **Broker:** `broker.hivemq.com:1883`
 
-#### Trigger Mechanism
-Any MQTT PUBLISH message received on the subscribed topic triggers image capture.
+#### Message Payloads
+- **"1"** - Slot occupied (car detected by on-slot sensor)
+- **"0"** - Slot empty (no car present)
+
+#### Trigger Mechanism (State Machine)
+The system implements intelligent debouncing to handle real-world parking scenarios:
+
+1. **IDLE State:** Waiting for first "1" message
+2. **STABILIZING State (2s):** 
+   - Car detected, waiting for driver to finish aligning
+   - Additional "1" messages reset the 2-second timer
+   - "0" message returns to IDLE (car left before parking)
+3. **CONFIRMED State:** 
+   - 2 seconds elapsed with stable occupancy
+   - Trigger ESP32-CAM with 100ms HIGH pulse on PB12
+4. **COOLDOWN State (5s adaptive):**
+   - Ignore all "1" messages for minimum 5 seconds
+   - **Early exit**: If "0" received, immediately return to IDLE
+   - Allows fast queue processing in busy parking lots
+   - Returns to IDLE after timeout
+
+**Why Debouncing?**
+Real parking involves multiple sensor fluctuations as drivers reverse, align, and adjust position. Without debouncing, one parking event could trigger 5-10 camera captures. The state machine ensures only ONE image per parking event.
+
+**Multi-Slot Behavior:**
+- Camera subscribes to wildcard: `SPARK_C06/isOccupied/*`
+- Receives messages from all slots: A01, A02, A03, etc.
+- Last car to stabilize within 2s window triggers capture
+- Wide-angle camera captures ALL slots in single image
+- Backend processes image to detect individual slot changes
+- Assumption: Passengers never trigger sensors (only car entry/exit)
 
 ---
 
-### 2. ESP32-CAM SPI Protocol
+### 2. ESP32-CAM Trigger Protocol
 
-#### Trigger Sequence
+#### Trigger Signal
 ```
-1. CS LOW (100ms pulse) → Trigger image capture
-2. Wait 2000ms → Allow camera to capture and prepare
-3. CS LOW → Begin SPI data transfer
-```
+STM32 PB12 → ESP32-CAM GPIO15 (Rising Edge Interrupt)
 
-#### Data Transfer Protocol
-
-**Phase 1: Size Header (4 bytes)**
-```c
-Byte 0: Size MSB (bits 31-24)
-Byte 1: Size (bits 23-16)
-Byte 2: Size (bits 15-8)
-Byte 3: Size LSB (bits 7-0)
-
-Example for 76,800 bytes (QVGA):
-[0x00][0x01][0x2C][0x00]
-```
-
-**Phase 2: Image Data (76,800 bytes)**
-```
-Format: Raw grayscale pixels
-Resolution: 320×240 (QVGA)
-Pixel Format: 8-bit grayscale (0-255)
-Total Size: 76,800 bytes
+Timing:
+┌──────────────────┐
+│   IDLE (LOW)     │
+└──────────────────┘
+         │
+         ▼
+    ┌────────┐
+    │  HIGH  │ ← 100ms pulse
+    └────────┘
+         │
+         ▼
+┌──────────────────┐
+│   IDLE (LOW)     │
+└──────────────────┘
 ```
 
-#### SPI Timing
-```
-Trigger:     CS LOW (100ms) → CS HIGH
-Wait:        2000ms
-Header Rx:   CS LOW → Read 4 bytes → CS HIGH
-Data Rx:     CS LOW → Read 76,800 bytes (512-byte chunks)
-```
+**STM32 Side:**
+1. Detect stable parking event (STABILIZING → CONFIRMED after 2s)
+2. Assert PB12 = HIGH for 100ms
+3. Return PB12 = LOW
+4. Enter COOLDOWN state (5s minimum, exits early if car leaves)
+
+**ESP32-CAM Side (Independent Operation):**
+1. GPIO15 rising edge interrupt triggered
+2. Wake from deep sleep
+3. Initialize OV2640 camera
+4. Capture VGA (640×480) grayscale image
+5. JPEG compress (quality 75-80) → ~10-15 KB
+6. Connect WiFi
+7. HTTPS POST to backend: `https://danishritonga-spark-backend.hf.space/upload`
+8. Disconnect WiFi
+9. Power down camera
+10. Return to deep sleep
+
+**No SPI Data Transfer:**
+- Image data never sent to STM32
+- ESP32-CAM has 520KB SRAM (sufficient for VGA processing)
+- ESP32-CAM handles WiFi + HTTPS (ESP-01 limitation bypassed)
+- STM32 only acts as intelligent trigger controller
 
 ---
 
-### 3. HTTP Protocol (via ESP-01)
+### 3. Image Upload Protocol (ESP32-CAM → Backend)
 
-#### Connection Flow
+**Note:** HTTP upload is handled entirely by ESP32-CAM. STM32 is NOT involved in image transfer.
+
+#### ESP32-CAM HTTPS POST (Independent)
 ```
-1. Close existing connections
-   AT+CIPCLOSE
-
-2. Open TCP connection
-   AT+CIPSTART="TCP","<server>",80
-
-3. Send data size
-   AT+CIPSEND=<total_size>
-   
-4. Wait for '>' prompt
-
-5. Send HTTP request + image data
+Endpoint: https://danishritonga-spark-backend.hf.space/upload
+Method: POST
+Content-Type: multipart/form-data or application/octet-stream
+Payload: JPEG compressed image (~10-15 KB)
 ```
 
-#### HTTP POST Request Format
-```http
-POST /api/upload HTTP/1.1
-Host: <server>
-Content-Type: application/octet-stream
-X-Image-Width: 320
-X-Image-Height: 240
-X-Image-Format: grayscale
-Content-Length: 76800
-Connection: close
+**Image Specifications:**
+- **Resolution:** VGA (640×480)
+- **Format:** Grayscale
+- **Compression:** JPEG (quality 75-80)
+- **Size:** ~10-15 KB (compressed)
+- **Encoding Time:** ~200-300ms @ 240MHz
 
-<binary_image_data>
+**Upload Flow (ESP32-CAM):**
+```
+1. Capture VGA grayscale frame → ESP32 SRAM
+2. JPEG compress using hardware encoder
+3. Connect WiFi (credentials stored in ESP32 firmware)
+4. HTTPS POST compressed image to backend
+5. Receive HTTP 200 OK response
+6. Disconnect WiFi
+7. Return to deep sleep
 ```
 
-#### Custom Headers
-- `X-Image-Width`: Image width in pixels (320)
-- `X-Image-Height`: Image height in pixels (240)
-- `X-Image-Format`: Pixel format (grayscale)
-
-#### Streaming Architecture
-```
-ESP32-CAM (SPI) → STM32 (512-byte chunks) → ESP-01 (UART) → HTTP Server
-                   ↑ Zero-copy streaming ↑
-```
-
-**Chunk Size:** 512 bytes  
-**Total Chunks:** 150 (76,800 / 512)  
-**Transmission Time:** ~6.6 seconds @ 115200 baud
+**Why ESP32-CAM Handles Upload:**
+- ✅ HTTPS support (ESP-01 only supports HTTP)
+- ✅ 520KB SRAM (sufficient for VGA + JPEG encoding)
+- ✅ Hardware JPEG encoder (fast compression)
+- ✅ Native WiFi (no UART bottleneck)
+- ✅ Reduces STM32 complexity (no image buffering)
+- ✅ Lower power (WiFi only active during upload)
 
 ---
 
 ## State Machine
 
-### Main Loop States
+### Smart Parking Debouncing State Machine
 
 ```
-┌─────────────┐
-│   IDLE      │ ← Waiting for MQTT message
-└──────┬──────┘
-       │ MQTT PUBLISH received
-       ▼
-┌─────────────┐
-│  TRIGGERED  │ ← Set capture_triggered flag
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  TRIGGER    │ ← CS LOW pulse to ESP32-CAM
-│   CAMERA    │   Wait 2000ms
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  RECEIVE    │ ← Read 4-byte header
-│   HEADER    │   Validate size
-└──────┬──────┘
-       │ size == 76,800
-       ▼
-┌─────────────┐
-│  STREAM     │ ← Open HTTP connection
-│   IMAGE     │   Stream 512-byte chunks
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  RECONNECT  │ ← Close HTTP connection
-│    MQTT     │   Reconnect to MQTT broker
-└──────┬──────┘
-       │
-       └──────► Back to IDLE
+┌─────────────────────────────────────────────────┐
+│                    IDLE                         │
+│  - No car detected (spot empty)                 │
+│  - PB12 = LOW                                    │
+│  - Waiting for first "1" message                │
+└──────────────┬──────────────────────────────────┘
+               │ MQTT: "SPARK_C06/isOccupied/*" → "1"
+               ▼
+┌─────────────────────────────────────────────────┐
+│                STABILIZING                       │
+│  - Car detected (driver aligning)               │
+│  - PB12 = LOW (camera NOT triggered yet)        │
+│  - Timer: 2 seconds                             │
+│  - Any new "1" resets timer                     │
+│  - If "0" received → back to IDLE               │
+└──────────────┬──────────────────────────────────┘
+               │ 2s elapsed without state change
+               ▼
+┌─────────────────────────────────────────────────┐
+│                 CONFIRMED                        │
+│  - Car stable → trigger camera                  │
+│  - Assert PB12 = HIGH for 100ms                 │
+│  - ESP32-CAM captures parking event             │
+└──────────────┬──────────────────────────────────┘
+               │ After 100ms
+               ▼
+┌─────────────────────────────────────────────────┐
+│                 COOLDOWN                         │
+│  - PB12 = LOW                                    │
+│  - Ignore all "1" messages                      │
+│  - Duration: 5 seconds (minimum)                │
+│  - Early exit: "0" → IDLE immediately           │
+│  - Allows fast queue processing                 │
+└──────────────┬──────────────────────────────────┘
+               │ After 5s timeout OR "0" received
+               └──────► Back to IDLE (ready for next car)
 ```
+
+### State Transitions
+
+| Current State | Event | Next State | Action |
+|---------------|-------|------------|--------|
+| IDLE | "1" received | STABILIZING | Start 2s timer, blink LED (2×) |
+| STABILIZING | "1" received | STABILIZING | Reset 2s timer, toggle LED |
+| STABILIZING | "0" received | IDLE | Cancel trigger, blink LED (1×) |
+| STABILIZING | 2s timeout | CONFIRMED | Assert PB12=HIGH, blink LED (3×) |
+| CONFIRMED | 100ms elapsed | COOLDOWN | PB12=LOW, start 5s timer |
+| COOLDOWN | "1" message | COOLDOWN | Ignored (no action) |
+| COOLDOWN | "0" message | IDLE | Early exit, blink LED (2×) |
+| COOLDOWN | 5s timeout | IDLE | Blink LED (2× slow), ready |
 
 ### Connection Management
 
@@ -281,18 +419,27 @@ ESP32-CAM (SPI) → STM32 (512-byte chunks) → ESP-01 (UART) → HTTP Server
 
 ## LED Status Indicators
 
+### Initialization Patterns
 | Blink Pattern | Meaning | State |
 |---------------|---------|-------|
 | 3 slow (200ms) | System ready | Startup |
 | 3 medium (300ms) | WiFi connected | Initialization |
 | 5 slow (200ms) | MQTT connected | Initialization |
 | 4 fast (150ms) | Subscribed to topic | Initialization |
-| 5 rapid (50ms) | MQTT trigger received | Active |
-| 2 slow (200ms) | Valid image size | Capture |
-| Toggle during transfer | Image streaming | Active |
-| 5 slow (300ms) | HTTP success | Success |
-| 8 fast (150ms) | Transfer failed | Error |
-| 10 fast (100ms) | Invalid image size | Error |
+
+### Smart Parking State Machine Patterns
+| Blink Pattern | Meaning | State |
+|---------------|---------|-------|
+| 2 fast (100ms) | "1" received → STABILIZING | Car detected |
+| Toggle | Additional "1" in STABILIZING | Car still moving |
+| 1 slow (300ms) | "0" received in STABILIZING | Car left (abort) |
+| 3 fast (100ms) | STABILIZING → CONFIRMED | Triggering camera |
+| 1 quick (50ms) | CONFIRMED → COOLDOWN | Pulse complete |
+| 2 slow (200ms) | COOLDOWN → IDLE (timeout or early exit) | Ready for next car |
+
+### Error Patterns
+| Blink Pattern | Meaning | State |
+|---------------|---------|-------|
 | 10 medium (200ms) | WiFi connection failed | Error |
 | 10 slow (300ms) | MQTT TCP failed | Error |
 | 10 very slow (400ms) | MQTT CONNECT failed | Error |
@@ -306,22 +453,33 @@ ESP32-CAM (SPI) → STM32 (512-byte chunks) → ESP-01 (UART) → HTTP Server
 ### RAM Allocation
 ```
 Total RAM:      65,536 bytes (64KB)
-Used:           1,372 bytes (2.1%)
-Available:      64,164 bytes (97.9%)
+Used:           776 bytes (1.2%)
+Available:      64,760 bytes (98.8%)
 ```
 
 **Key Buffers:**
-- UART RX Buffer: 512 bytes
-- SPI Chunk Buffer: 512 bytes
-- Stack/Heap: ~300 bytes
-- HAL/System: ~48 bytes
+- UART RX Buffer: 512 bytes (ESP-01 communication)
+- State Machine Variables: ~12 bytes
+- Stack/Heap: ~200 bytes
+- HAL/System: ~52 bytes
+
+**Memory Savings vs v1.0:**
+- No SPI chunk buffer (512 bytes freed)
+- No image buffering (76,800 bytes never allocated)
+- Reduced from 1,372 bytes (2.1%) to 776 bytes (1.2%)
 
 ### Flash Allocation
 ```
 Total Flash:    262,144 bytes (256KB)
-Used:           12,756 bytes (4.9%)
-Available:      249,388 bytes (95.1%)
+Used:           9,996 bytes (3.8%)
+Available:      252,148 bytes (96.2%)
 ```
+
+**Flash Savings vs v1.0:**
+- Removed SPI transfer code (~1 KB)
+- Removed HTTP streaming code (~1.5 KB)
+- Simplified state machine logic
+- Reduced from 12,756 bytes (4.9%) to 9,996 bytes (3.8%)
 
 ---
 
@@ -432,26 +590,43 @@ Waits for '>' prompt after AT+CIPSEND.
 #define WIFI_PASSWORD "123654987"
 ```
 
-### MQTT Settings
+### MQTT Settings (Smart Parking)
 ```c
 #define MQTT_BROKER "broker.hivemq.com"
 #define MQTT_PORT 1883
 #define MQTT_CLIENT_ID "SPARK_C06"
-#define MQTT_TOPIC_SUB "SPARK_C06/stm32/command"
+#define MQTT_TOPIC_BASE "SPARK_C06/isOccupied/"
+#define MQTT_TOPIC_SUB MQTT_TOPIC_BASE "*"          // Wildcard subscription
+#define MQTT_TOPIC_PUB "SPARK_C06/camera/status"
+#define MQTT_KEYWORD_OCCUPIED "1"
+#define MQTT_KEYWORD_EMPTY "0"
 ```
 
-### HTTP Settings
+**Multi-Slot Monitoring:**
+- Camera subscribes to `SPARK_C06/isOccupied/*`
+- Receives messages from all on-slot sensors: A01, A02, B12, etc.
+- One camera monitors entire parking row (wide-angle lens)
+- No firmware changes needed when adding/removing slots
+
+### State Machine Timing
 ```c
-#define HTTP_SERVER "your-server.com"     // ⚠️ Update before deployment
-#define HTTP_PORT 80
-#define HTTP_ENDPOINT "/api/upload"
+#define TRIGGER_PULSE_MS 100     // ESP32-CAM trigger pulse duration
+#define STABILIZING_MS 2000      // Wait 2s for car to stabilize (reduced for multi-slot)
+#define COOLDOWN_MS 5000         // Minimum 5s cooldown, exits early if car leaves
 ```
 
-### Image Settings
+**Timing Rationale:**
+- **2s stabilization**: Faster response for multi-slot scenarios, less chance of second car interfering
+- **5s adaptive cooldown**: Minimum prevents rapid re-triggers, exits early when car leaves
+- **Early exit benefit**: Next car can trigger immediately after previous car departs
+
+### Image Settings (ESP32-CAM Side)
 ```c
-#define IMAGE_WIDTH 320
-#define IMAGE_HEIGHT 240
-#define IMAGE_SIZE 76800  // QVGA grayscale
+// Note: These settings are in ESP32-CAM firmware, not STM32
+#define IMAGE_WIDTH 640
+#define IMAGE_HEIGHT 480
+#define IMAGE_FORMAT PIXFORMAT_GRAYSCALE
+#define JPEG_QUALITY 80          // 75-80 recommended (~10-15 KB)
 ```
 
 ---
@@ -480,80 +655,119 @@ Waits for '>' prompt after AT+CIPSEND.
 
 ---
 
-## Timing Constraints
+### Timing Constraints
 
-### Critical Timing
-- **CS Trigger Pulse:** 100ms (minimum for ESP32-CAM recognition)
-- **Capture Wait:** 2000ms (ESP32-CAM processing time)
-- **Chunk Delay:** 20ms (between 512-byte SPI chunks)
+### Critical Timing (STM32 State Machine)
+- **Trigger Pulse:** 100ms HIGH on PB12 (ESP32-CAM detection)
+- **Stabilizing Period:** 2,000ms (wait for car to stop moving)
+- **Cooldown Period:** 5,000ms minimum (exits early if car leaves)
 - **MQTT Ping:** 30,000ms (keep-alive interval)
 - **Status Check:** 60,000ms (connection verification)
 
-### Transmission Time Estimates
+### ESP32-CAM Timing (Independent)
 ```
-UART @ 115200 baud:
-- 1 byte = 86.8μs
-- 512 bytes = 44.4ms
-- 76,800 bytes = 6.67 seconds (theoretical)
-- 76,800 bytes ≈ 9.6 seconds (with delays)
+Trigger Detection → Wake from deep sleep: ~10ms
+Camera Init → First frame ready: ~500ms
+VGA Capture: ~100ms
+JPEG Compression (quality 80): ~200-300ms
+WiFi Connect: ~2-4 seconds
+HTTPS POST (10-15 KB): ~1-2 seconds
+Total per capture: ~4-7 seconds
 ```
+
+**No UART Bottleneck:**
+- Image never sent to STM32
+- ESP32-CAM uses native WiFi (fast)
+- No 115200 baud limitation
+- Parallel operation: STM32 in COOLDOWN while ESP32-CAM uploads
 
 ---
 
 ## Workflow Example
 
-### Complete Capture Cycle
+### Complete Smart Parking Event
+
+**Scenario:** Driver approaches slot A03, takes 3 alignment attempts, parks successfully. Another car arrives shortly after.
 
 ```
-Time    Event
-----    -----
-0.0s    MQTT PUBLISH received
-        → LED blinks 5 times rapidly
-        → capture_triggered = 1
+Time    Event (STM32 + ESP32-CAM)
+----    -------------------------
+0.0s    [IDLE] Camera monitoring slots A01-A05
 
-0.3s    ESP32CAM_TriggerCapture()
-        → CS LOW (100ms)
-        → CS HIGH
-        
-2.3s    ESP32CAM_ReceiveImage()
-        → CS LOW
-        → Read 4-byte header
-        → Validate: 0x00 0x01 0x2C 0x00 = 76,800 ✓
-        → CS HIGH
-        → LED blinks 2 times (valid size)
-        
-2.8s    ESP01_SendImageHTTP()
-        → AT+CIPCLOSE
-        → AT+CIPSTART="TCP","server.com",80
-        → AT+CIPSEND=<size>
-        → Wait for '>'
-        
-8.3s    HTTP header sent
-        → POST /api/upload HTTP/1.1
-        → Custom headers
-        
-8.4s    Image streaming begins
-        → CS LOW
-        → Loop 150 iterations:
-          - SPI receive 512 bytes
-          - UART transmit 512 bytes
-          - LED toggle
-          - Delay 20ms
-        → CS HIGH
-        
-18.4s   Wait for HTTP response (2s)
+2.5s    [MQTT] "SPARK_C06/isOccupied/A03" → "1"
+        → STM32 → STABILIZING
+        → LED blinks 2× (car detected)
+        → Start 2s timer
 
-20.4s   Reconnect MQTT
-        → AT+CIPCLOSE
-        → AT+CIPSTART (broker)
-        → MQTT CONNECT
-        → MQTT SUBSCRIBE
-        
-22.4s   Back to IDLE
-        → Ready for next trigger
+3.8s    [MQTT] "SPARK_C06/isOccupied/A03" → "1"
+        → STM32 → STABILIZING (reset timer)
+        → LED toggle (car still moving)
+
+4.2s    [MQTT] "SPARK_C06/isOccupied/A03" → "0"
+        → STM32 → IDLE (car reversed out)
+        → LED blinks 1× slow
+
+5.0s    [MQTT] "SPARK_C06/isOccupied/A03" → "1"
+        → STM32 → STABILIZING (restart)
+        → LED blinks 2× (car returned)
+
+6.1s    [MQTT] "SPARK_C06/isOccupied/A03" → "1"
+        → STM32 → STABILIZING (reset timer)
+        → LED toggle
+
+8.1s    [2s Stable] STM32 → CONFIRMED
+        → PB12 = HIGH (100ms pulse)
+        → LED blinks 3× (triggering camera)
+
+8.2s    [ESP32-CAM] GPIO15 rising edge detected
+        → Wake from deep sleep
+        → Init camera
+
+8.7s    [ESP32-CAM] Capture VGA grayscale
+        → 640×480 pixels captured
+
+9.0s    [ESP32-CAM] JPEG compress
+        → Quality 80, output ~12 KB
+
+9.3s    [STM32] PB12 = LOW → COOLDOWN (5s minimum)
+        → LED blinks 1× quick
+
+11.0s   [ESP32-CAM] WiFi connect
+        → "ParkingLot_WiFi" connected
+
+12.5s   [ESP32-CAM] HTTPS POST
+        → https://danishritonga-spark-backend.hf.space/upload
+        → Upload 12 KB JPEG
+
+13.8s   [ESP32-CAM] HTTP 200 OK
+        → Disconnect WiFi
+        → Power down camera
+        → Deep sleep
+
+14.0s   [MQTT] "SPARK_C06/isOccupied/A03" → "0" (car leaves)
+        → STM32 → IDLE (early exit from COOLDOWN after 5s!)
+        → LED blinks 2× slow
+        → Ready for next car
+
+14.5s   [MQTT] "SPARK_C06/isOccupied/A01" → "1" (new car, different slot)
+        → STM32 → STABILIZING immediately ✅
+        → No wait needed!
 ```
 
-**Total Cycle Time:** ~22-25 seconds
+**Total STM32 Cycle:** ~12 seconds (6s stabilization attempts + 0.1s trigger + 5s cooldown + early exit)  
+**ESP32-CAM Active Time:** ~5 seconds (capture + upload)  
+**Parallel Operation:** ESP32-CAM processes independently while STM32 in COOLDOWN  
+**Images Captured:** **1** (despite 4 MQTT "1" messages and 2 "0" messages)
+**Next Car Ready:** Immediately after previous car departs (early exit benefit)
+
+**Multi-Slot Example:**
+```
+0.0s    - Slot A01: "1" → STABILIZING (start 2s timer)
+1.5s    - Slot A02: "1" → STABILIZING (reset timer - new car detected)
+3.5s    - 2s elapsed from last "1" → CONFIRMED
+        → Camera captures BOTH A01 and A02 in single image ✅
+        → Backend processes image to detect individual slot changes
+```
 
 ---
 
@@ -561,40 +775,66 @@ Time    Event
 
 ### Common Issues
 
-**1. WiFi won't connect**
+**1. WiFi won't connect (STM32/ESP-01)**
 - Check SSID/password in code
 - Verify ESP-01 has proper power (3.3V, min 300mA)
-- Check UART connections (TX↔RX, RX↔TX)
+- Check UART connections (PB6→ESP-01 RX, PB7←ESP-01 TX)
 - Look for 10 medium blinks (200ms)
 
 **2. MQTT connection fails**
 - Verify internet connectivity
 - Check broker address: broker.hivemq.com
-- Ensure unique client ID
+- Ensure unique client ID (SPARK_C06)
 - Look for 10 slow blinks (300ms/400ms)
+- Verify wildcard subscription: `SPARK_C06/isOccupied/*`
 
-**3. Image capture not triggering**
-- Publish to correct topic: `SPARK_C06/stm32/command`
-- Check for 5 rapid LED blinks when message arrives
-- Verify ESP-01 subscription worked (4 fast blinks)
+**3. Camera not triggering**
+- Publish to correct topic: `SPARK_C06/isOccupied/A01` (or any slot ID)
+- Payload must be `"1"` (occupied) or `"0"` (empty)
+- Check for 2 fast LED blinks when "1" received
+- Verify ESP-01 subscription worked (4 fast blinks at startup)
+- Ensure state machine not in COOLDOWN (5s ignore period for "1" messages)
+- Note: COOLDOWN exits early if "0" received
 
-**4. Invalid image size**
-- Check ESP32-CAM firmware sends size header correctly
-- Verify big-endian byte order
-- Look for 10 fast blinks (100ms)
-- Expected: [0x00][0x01][0x2C][0x00]
+**4. Multiple rapid triggers (normal behavior!)**
+- State machine is designed to handle this
+- First "1" → STABILIZING (start 2s timer)
+- Additional "1" → resets timer (car still moving)
+- Camera only triggers after 2s stability
+- Check LED toggles during stabilization
+- This is expected for real parking scenarios
 
-**5. SPI communication fails**
-- Check SPI connections (MISO/MOSI)
-- Verify CS pin controls ESP32-CAM
-- Ensure ESP32-CAM firmware running
-- Look for 8 fast blinks (150ms)
+**5. Car leaves before capture**
+- State machine design: "0" during STABILIZING → back to IDLE
+- This is correct behavior (no wasted image)
+- Check for 1 slow LED blink when car leaves early
 
-**6. HTTP upload fails**
-- Update HTTP_SERVER in code
-- Verify server accepts raw binary POST
-- Check Content-Type handling on server
-- Look for 8 fast blinks (150ms)
+**6. Trigger works but no image uploaded**
+- Issue is on ESP32-CAM side (not STM32)
+- Check ESP32-CAM firmware running
+- Verify GPIO15 interrupt configured
+- Check WiFi credentials on ESP32-CAM
+- Verify backend endpoint: `https://danishritonga-spark-backend.hf.space/upload`
+- Monitor ESP32-CAM serial output for debug info
+
+**7. System stuck in COOLDOWN**
+- Wait minimum 5 seconds after trigger
+- Publish "0" (empty) to force early exit to IDLE
+- Check for 2 slow blinks when returning to IDLE
+- If stuck: power cycle STM32
+- Verify HAL_GetTick() incrementing correctly
+
+**8. Camera triggering too frequently**
+- Check STABILIZING_MS setting (should be 2000ms)
+- Verify COOLDOWN_MS minimum (should be 5000ms)
+- Ensure sensors aren't sending false "1" messages
+- Check if multiple slots reporting simultaneously (expected for multi-slot)
+
+**9. Slow response to next car**
+- System should exit COOLDOWN early when car leaves
+- Verify "0" messages being sent by sensors
+- Check for 2 blink pattern on early COOLDOWN exit
+- If not exiting early, check ESP01_ReceiveAndParse() logic
 
 ### Debug via LED
 Monitor LED patterns to identify system state:
@@ -606,46 +846,79 @@ Monitor LED patterns to identify system state:
 
 ## Future Enhancements
 
-### Potential Improvements
-1. **Image Processing:**
-   - 2×2 downsampling (160×120) for faster transmission
-   - ROI extraction (center crop)
-   - Adaptive resolution based on bandwidth
+### Potential STM32 Improvements
+1. **State Machine Tuning:**
+   - Configurable timings via MQTT (STABILIZING_MS, COOLDOWN_MS)
+   - Adaptive stabilization (learn parking patterns)
+   - Different timing profiles for different slot types
 
-2. **Compression:**
-   - JPEG compression on ESP32-CAM (hardware encoder)
-   - Streaming JPEG compression (8×8 blocks)
-   - Run-length encoding for simple scenes
+2. **Multi-Camera Coordination:**
+   - Support multiple ESP32-CAM units per STM32
+   - Zone-based triggering (trigger only relevant camera)
+   - Round-robin scheduling for simultaneous events
 
-3. **Protocol:**
-   - HTTPS support (if ESP-01 firmware allows)
-   - MQTT QoS 1 with acknowledgment
-   - Multi-part upload for reliability
+3. **Advanced Debouncing:**
+   - Machine learning-based pattern recognition
+   - Differentiate parking vs. passing traffic
+   - Predict final parking position
 
 4. **Power Management:**
-   - Deep sleep between captures
-   - Dynamic frequency scaling
-   - Peripheral power gating
+   - STM32 sleep mode between MQTT messages
+   - Dynamic clock scaling (84MHz → 16MHz during IDLE)
+   - Wake-on-UART for ESP-01 messages
 
-5. **Features:**
-   - Multiple image formats (RGB565, JPEG)
-   - Configurable resolution via MQTT
-   - Image metadata (timestamp, sequence number)
-   - Local SD card storage (backup)
+5. **Diagnostics:**
+   - Publish state machine metrics via MQTT
+   - Track: triggers/hour, false positives, average stabilization time
+   - Remote configuration updates
+
+### ESP32-CAM Enhancements (Separate Firmware)
+1. **Computer Vision:**
+   - On-device license plate detection
+   - Vehicle counting in frame
+   - Identify specific changed slot (A01 vs A02)
+   - Motion detection for validation
+
+2. **Compression:**
+   - Adaptive JPEG quality based on scene complexity
+   - Multi-resolution capture (thumbnail + full)
+   - Edge-detected ROI extraction
+
+3. **Reliability:**
+   - Local SD card backup (if WiFi fails)
+   - Retry logic with exponential backoff
+   - Offline queuing (upload when WiFi returns)
+
+4. **Smart Capture:**
+   - Wait for motion to stop (accelerometer)
+   - Multiple angles (if servo-mounted)
+   - HDR capture for varying lighting
 
 ---
 
 ## Version History
 
-### v1.0 (2025-11-09)
-- Initial release
+### v2.0 (2025-11-12) - Smart Parking State Machine
+- **Major architectural change:** STM32 = debouncing controller, ESP32-CAM = independent processor
+- 4-state machine: IDLE → STABILIZING → CONFIRMED → COOLDOWN
+- Intelligent debouncing for real-world parking scenarios
+- Wildcard MQTT subscription: `SPARK_C06/isOccupied/*`
+- Simple binary payloads: "1" (occupied) / "0" (empty)
+- 100ms trigger pulse on PB12 → ESP32-CAM GPIO15
+- ESP32-CAM handles VGA capture + JPEG + WiFi + HTTPS independently
+- **Removed:** SPI data transfer, HTTP upload code from STM32
+- **Memory savings:** 1.2% RAM (776 bytes), 3.8% Flash (9,996 bytes)
+- Multi-slot monitoring with single camera unit
+
+### v1.0 (2025-11-09) - Initial Release [DEPRECATED]
 - MQTT trigger via ESP-01
 - ESP32-CAM image capture via SPI
-- HTTP POST streaming (raw grayscale)
+- HTTP POST streaming through STM32 (raw grayscale)
 - Auto-reconnection
 - LED status indicators
 - 2.1% RAM usage (1,372 bytes)
 - 4.9% Flash usage (12,756 bytes)
+- **Limitations:** ESP-01 no HTTPS, STM32 buffering bottleneck, simple trigger
 
 ---
 
@@ -671,10 +944,21 @@ For issues or questions about this firmware:
 
 **Hardware Requirements:**
 - STM32F401CCU6 Black Pill
-- ESP-01 WiFi module
-- ESP32-CAM (AI-Thinker)
-- 3.3V power supply (min 500mA)
+- ESP-01 WiFi module (MQTT gateway)
+- ESP32-CAM AI-Thinker (camera + WiFi + processing)
+- On-slot occupancy sensors (ultrasonic/magnetic)
+- 3.3V Li-ion battery (e.g., 18650 ≥2000 mAh)
+- Fixed 5V booster (MT3608)
+- 3.3V regulator (AMS1117-3.3)
+- Power capacitors (470µF + 100µF + 0.1µF)
 - USB-Serial adapter (for programming)
+
+**System Overview:**
+```
+On-Slot Sensors → MQTT → ESP-01 → STM32 (State Machine) → ESP32-CAM → Backend
+                                      ↓
+                            Debouncing + Trigger Logic
+```
 
 ---
 

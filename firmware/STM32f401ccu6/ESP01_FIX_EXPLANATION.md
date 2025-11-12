@@ -1,8 +1,16 @@
-# ESP-01 WiFi Connection Fix - Root Cause Analysis
+# ESP-01 WiFi Connection & MQTT Parsing Fixes - Root Cause Analysis
 
 ## Problem Summary
 
-The STM32F401CCU6 was unable to connect to WiFi via ESP-01 module despite correct hardware connections. The system would fail during initialization with LED pattern: `3 blinks → 1 long blink → rapid blinks → 10 blinks`, indicating ESP-01 communication failure.
+The STM32F401CCU6 had two critical issues when interfacing with ESP-01:
+1. **WiFi Connection**: Unable to connect to WiFi despite correct hardware connections
+2. **MQTT Parsing**: PA15 not triggering even when ESP-01 received MQTT messages successfully
+
+Both issues were resolved through systematic debugging and understanding of STM32 HAL UART behavior.
+
+---
+
+# Issue #1: WiFi Connection Failure
 
 ## Root Cause
 
@@ -187,12 +195,263 @@ ESP01_ConnectWiFi(WIFI_SSID, WIFI_PASSWORD);  // No AT test!
 - **Protocol Doc**: `STM32_PROTOCOL.md` - Complete MQTT/WiFi protocol implementation
 - **Main Code**: `src/main.c` - Firmware implementation
 
-## Credits
+---
 
-Issue identified and resolved through systematic hardware-level debugging and questioning of fundamental assumptions about the initialization sequence.
+# Issue #2: MQTT Message Parsing Failure
+
+## Problem Summary
+
+After successfully establishing WiFi and MQTT connection, the STM32 failed to trigger PA15 when MQTT messages arrived, despite ESP-01 receiving them correctly (confirmed via serial monitor showing `+IPD,37:...command...` packets).
+
+## Root Cause Analysis
+
+### Initial Problem: UART RX Interrupt Stopping
+
+**The UART receive interrupt would stop after transmit operations.**
+
+#### Why This Happened
+
+1. **HAL Transmit Side Effect**: `HAL_UART_Transmit()` internally changes UART state flags
+2. **Interrupt State Lost**: After transmit, RX interrupt mode wasn't automatically restarted
+3. **Silent Failure**: No error indication - just stopped receiving bytes silently
+4. **Data Loss**: MQTT PUBLISH packets from ESP-01 were being dropped
+
+#### Diagnostic Evidence
+
+```
+LED Pattern Analysis:
+- Single quick blink only = RX interrupt receiving some data initially
+- No double blinks = Not accumulating enough bytes for parsing
+- Conclusion: Interrupt stopping mid-operation
+```
+
+#### The Fix
+
+**Restart RX interrupt after every transmit operation:**
+
+```c
+static void send_AT(const char* cmd, uint32_t delay_ms)
+{
+    HAL_UART_AbortReceive_IT(&huart1);  // Stop RX temporarily
+    HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
+    HAL_Delay(delay_ms);
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx_byte, 1);  // ✅ Restart RX!
+}
+
+static void send_data(uint8_t* data, uint16_t len)
+{
+    HAL_UART_AbortReceive_IT(&huart1);  // Stop RX temporarily
+    HAL_UART_Transmit(&huart1, data, len, HAL_MAX_DELAY);
+    HAL_Delay(500);
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx_byte, 1);  // ✅ Restart RX!
+}
+```
+
+### Second Problem: Premature Buffer Parsing
+
+**Buffer was checked before complete MQTT packet arrived.**
+
+#### Why This Happened
+
+1. **Early Check**: Original code checked buffer when only 5 bytes received
+2. **Packet Size**: ESP-01 sends 37-byte MQTT PUBLISH packets: `+IPD,37:0#␀␗SPARK_C06/stm32/commandpppppppppp`
+3. **Missed Trigger**: "command" keyword wasn't in buffer yet when checked
+4. **False Negative**: Function returned early, never found the trigger
+
+#### Diagnostic Evidence
+
+```
+Serial Monitor Output:
++IPD,37:0#␀␗SPARK_C06/stm32/commandpppppppppp
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ Complete packet = 37 bytes
+But checking at only 5 bytes!
+```
+
+#### The Fix
+
+**Wait for sufficient bytes before parsing:**
+
+```c
+static void ESP01_ReceiveAndParse(void)
+{
+    // OLD: if (rx_index < 5) return;  ❌ Too early!
+    
+    // NEW: Wait for 30+ bytes (37-byte packet from ESP-01)
+    if (rx_index < 30)  // ✅ Wait for complete packet
+        return;
+    
+    // Now parse...
+}
+```
+
+### Third Problem: String Function Limitations
+
+**`strstr()` fails on binary MQTT data containing null bytes.**
+
+#### Why This Happened
+
+1. **Binary Protocol**: MQTT PUBLISH packets contain binary data (null bytes: `␀`)
+2. **String Termination**: `strstr()` stops at first null byte
+3. **Incomplete Search**: Never scanned past binary data to find "command" keyword
+4. **Null Bytes in Packet**: `+IPD,37:0#␀␗SPARK_C06/...` has `␀` before topic name
+
+#### Diagnostic Evidence
+
+```
+MQTT Packet Structure:
++IPD,37:
+  0# ← Length prefix
+  ␀  ← NULL BYTE HERE! (binary MQTT header)
+  ␗  ← More binary data
+  SPARK_C06/stm32/command ← Target string (never reached by strstr)
+  pppppppppp ← Padding
+```
+
+#### The Fix
+
+**Manual byte-by-byte comparison using `strncmp()`:**
+
+```c
+// OLD: Broken with null bytes
+if (strstr((char*)rx_buffer, "command") != NULL) {  ❌
+    // Never found due to null bytes
+}
+
+// NEW: Works with binary data
+const char* keyword = MQTT_TRIGGER_KEYWORD;
+const int keyword_len = strlen(keyword);
+
+int found = 0;
+for (int i = 0; i <= rx_index - keyword_len; i++)
+{
+    // Compare keyword_len bytes at position i
+    if (strncmp((char*)&rx_buffer[i], keyword, keyword_len) == 0)  // ✅
+    {
+        found = 1;
+        break;
+    }
+}
+
+if (found) {
+    // Trigger PA15!
+    HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
+    capture_triggered = 1;
+}
+```
+
+## Complete Solution Evolution
+
+### Version 1: Initial (Broken)
+```c
+// Problems: RX stops, checks too early, uses strstr()
+static void ESP01_ReceiveAndParse(void)
+{
+    if (rx_index < 5) return;  // ❌ Too early
+    
+    if (strstr((char*)rx_buffer, "command") != NULL) {  // ❌ Null bytes
+        HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
+    }
+}
+```
+
+### Version 2: RX Restart Fix
+```c
+// Fixed RX interrupt, but still early check + strstr issues
+static void send_AT(const char* cmd, uint32_t delay_ms)
+{
+    HAL_UART_AbortReceive_IT(&huart1);
+    HAL_UART_Transmit(&huart1, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
+    HAL_Delay(delay_ms);
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx_byte, 1);  // ✅ Fixed
+}
+```
+
+### Version 3: Buffer Timing Fix
+```c
+// Fixed RX + timing, but still strstr issue
+static void ESP01_ReceiveAndParse(void)
+{
+    if (rx_index < 30) return;  // ✅ Wait for complete packet
+    
+    if (strstr((char*)rx_buffer, "command") != NULL) {  // ❌ Still broken
+        HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
+    }
+}
+```
+
+### Version 4: Final Working Solution
+```c
+// All fixes applied: RX restart + timing + byte-by-byte search
+static void ESP01_ReceiveAndParse(void)
+{
+    if (rx_index < 30)  // ✅ Wait for complete packet
+        return;
+    
+    const char* keyword = MQTT_TRIGGER_KEYWORD;
+    const int keyword_len = strlen(keyword);
+    
+    int found = 0;
+    for (int i = 0; i <= rx_index - keyword_len; i++)  // ✅ Byte-by-byte
+    {
+        if (strncmp((char*)&rx_buffer[i], keyword, keyword_len) == 0)  // ✅ Works with binary
+        {
+            found = 1;
+            break;
+        }
+    }
+    
+    if (found)
+    {
+        HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
+        // Blink LED 5 times (50ms)
+        capture_triggered = 1;
+        rx_index = 0;
+        memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    }
+}
+```
+
+## Key Insights - MQTT Parsing
+
+### What We Learned
+
+1. **HAL UART State Management**: STM32 HAL doesn't automatically maintain interrupt state across operations
+2. **Protocol Awareness**: Binary protocols need binary-safe parsing (not string functions)
+3. **Packet Timing**: Must wait for complete packets before parsing
+4. **Debug LED Patterns**: Critical for understanding timing and state without JTAG
+
+### Testing Methodology
+
+1. **Added LED Patterns**: Different blinks for different RX states
+2. **Observed Behavior**: Single blink vs double blinks indicated interrupt stopping
+3. **Serial Monitor**: Confirmed ESP-01 receiving data (but STM32 wasn't)
+4. **Incremental Fixes**: Fixed one issue at a time, tested each
+
+### Production Code Features
+
+**Final Working Implementation:**
+- ✅ Continuous UART RX interrupt operation
+- ✅ Byte-by-byte keyword detection (null-byte safe)
+- ✅ 30-byte threshold for complete packet
+- ✅ Automated keyword configuration via `#define MQTT_TRIGGER_KEYWORD`
+- ✅ Buffer overflow protection
+- ✅ Status publishing every 60 seconds
+- ✅ MQTT PING every 30 seconds
+- ✅ Auto-reconnection on connection loss
 
 ---
 
-**Date**: November 10, 2025  
+## Credits
+
+Issues identified and resolved through:
+1. Systematic hardware-level debugging (WiFi issue)
+2. LED diagnostic patterns (MQTT parsing issue)
+3. Binary protocol analysis (null byte discovery)
+4. Incremental testing methodology
+
+---
+
+**Date**: November 10-11, 2025  
 **Platform**: STM32F401CCU6 + ESP-01  
-**Firmware Version**: Post-fix (4.2% Flash, 1.2% RAM)
+**Firmware Version**: Post-fix (3.8% Flash, 1.2% RAM)
+**Status**: ✅ Fully operational - WiFi + MQTT + PA15 triggering working

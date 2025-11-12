@@ -6,9 +6,9 @@
 #define LED_PIN GPIO_PIN_13
 #define LED_PORT GPIOC
 
-// Control pin configuration
-#define CONTROL_PIN GPIO_PIN_15
-#define CONTROL_PORT GPIOA
+// ESP32-CAM Trigger Pin (SPI CS - PB12)
+#define TRIGGER_PIN GPIO_PIN_12
+#define TRIGGER_PORT GPIOB
 
 // ESP-01 Configuration
 #define ESP01_USART USART1
@@ -23,12 +23,25 @@
 #define MQTT_PORT 1883
 #define MQTT_CLIENT_ID "SPARK_C06"
 
-// MQTT Topic Configuration - structured for easy maintenance
-#define MQTT_TOPIC "SPARK_C06/stm32/"
-#define MQTT_TRIGGER "command"
-#define MQTT_TOPIC_PUB MQTT_TOPIC "test"
-#define MQTT_TOPIC_SUB MQTT_TOPIC MQTT_TRIGGER
-#define MQTT_TRIGGER_KEYWORD MQTT_TRIGGER  // Used for message parsing
+// MQTT Topic Configuration - Smart Parking System
+#define MQTT_TOPIC_BASE "SPARK_C06/isOccupied/"
+#define MQTT_TOPIC_SUB MQTT_TOPIC_BASE "#"              // Subscribe: "SPARK_C06/isOccupied/*" (all slots)
+#define MQTT_TOPIC_PUB "SPARK_C06/camera/status"        // Publish: camera status
+#define MQTT_KEYWORD_OCCUPIED "True"                        // Payload: car detected
+#define MQTT_KEYWORD_EMPTY "False"                           // Payload: spot empty
+
+// Smart Parking Debouncing State Machine Configuration
+#define TRIGGER_PULSE_MS 100     // Trigger pulse duration (100ms HIGH)
+#define STABILIZING_MS 2000      // Wait 2s for car to stabilize (reduced for multi-slot)
+#define COOLDOWN_MS 5000         // Cooldown period (5 seconds) - exits early if spot clears
+
+// State Machine States for Smart Parking
+typedef enum {
+    STATE_IDLE = 0,      // Spot empty, waiting for car detection
+    STATE_STABILIZING,   // Car detected, waiting for stable state (driver aligning)
+    STATE_CONFIRMED,     // Car stable, trigger camera (100ms pulse)
+    STATE_COOLDOWN       // Post-capture cooldown (30s)
+} TriggerState_t;
 
 // Buffer sizes
 #define RX_BUFFER_SIZE 512
@@ -62,11 +75,14 @@ volatile uint8_t rx_byte;
 volatile uint8_t message_received = 0;
 volatile uint8_t wifi_connected = 0;
 volatile uint8_t mqtt_connected = 0;
-volatile uint8_t capture_triggered = 0; // Flag for image capture trigger
 uint32_t last_ping_time = 0;
 uint32_t ping_interval = 30000; // Ping every 30 seconds
 uint32_t last_publish_time = 0;
 uint32_t publish_interval = 60000; // Publish status every 60 seconds
+
+// State Machine Variables
+volatile TriggerState_t trigger_state = STATE_IDLE;
+volatile uint32_t state_timer = 0;
 
 int main(void)
 {
@@ -146,20 +162,65 @@ int main(void)
     
     while (1)
     {
-        // Check for incoming MQTT messages (sets capture_triggered flag)
+        // Check for incoming MQTT messages (triggers state machine)
         ESP01_ReceiveAndParse();
         
-        // If capture triggered, just blink LED and reset control pin
-        if (capture_triggered)
+        // Smart Parking State Machine - handles multiple sensor fluctuations
+        switch (trigger_state)
         {
-            capture_triggered = 0; // Clear flag
-            
-            // Blink to show trigger was processed
-            Blink_Status(3, 100); // 3 fast blinks
-            
-            // Reset control pin after processing
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_RESET);
+            case STATE_STABILIZING:
+                // Check if 2s stabilization period elapsed
+                if ((HAL_GetTick() - state_timer) >= STABILIZING_MS)
+                {
+                    // Car is stable - trigger camera
+                    // Note: Wide-angle camera captures ALL slots in view
+                    HAL_GPIO_WritePin(TRIGGER_PORT, TRIGGER_PIN, GPIO_PIN_SET);
+                    
+                    // Visual feedback: capturing image
+                    Blink_Status(3, 100);
+                    
+                    // Transition to CONFIRMED state
+                    state_timer = HAL_GetTick();
+                    trigger_state = STATE_CONFIRMED;
+                }
+                // Note: Timer is reset by ESP01_ReceiveAndParse() if new "occupied" received
+                // This means last car to arrive within 2s window triggers capture
+                break;
+                
+            case STATE_CONFIRMED:
+                // Check if 100ms camera trigger pulse elapsed
+                if ((HAL_GetTick() - state_timer) >= TRIGGER_PULSE_MS)
+                {
+                    // End trigger pulse
+                    HAL_GPIO_WritePin(TRIGGER_PORT, TRIGGER_PIN, GPIO_PIN_RESET);
+                    
+                    // Visual feedback: capture complete
+                    Blink_Status(1, 50);
+                    
+                    // Transition to cooldown (5s minimum, exits early if spot clears)
+                    state_timer = HAL_GetTick();
+                    trigger_state = STATE_COOLDOWN;
+                }
+                break;
+                
+            case STATE_COOLDOWN:
+                // Check if 5-second minimum cooldown elapsed
+                if ((HAL_GetTick() - state_timer) >= COOLDOWN_MS)
+                {
+                    // Return to idle state - ready for next parking event
+                    trigger_state = STATE_IDLE;
+                    
+                    // Visual feedback: system ready
+                    Blink_Status(2, 200);
+                }
+                // Note: Cooldown exits early if "empty" detected (handled in ESP01_ReceiveAndParse)
+                // This allows next car to trigger without waiting full 5 seconds
+                break;
+                
+            case STATE_IDLE:
+            default:
+                // Spot empty, waiting for car detection via MQTT
+                break;
         }
         
         // Publish status message every 60 seconds
@@ -259,16 +320,16 @@ static void GPIO_Init(void)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
 
-    // Configure GPIO pin PA15 (Control Pin)
-    GPIO_InitStruct.Pin = CONTROL_PIN;
+    // Configure GPIO pin PB12 (Trigger Pin for ESP32-CAM)
+    GPIO_InitStruct.Pin = TRIGGER_PIN;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(CONTROL_PORT, &GPIO_InitStruct);
+    HAL_GPIO_Init(TRIGGER_PORT, &GPIO_InitStruct);
 
-    // Initialize LED OFF, Control Pin LOW
+    // Initialize LED OFF, Trigger Pin LOW
     HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(TRIGGER_PORT, TRIGGER_PIN, GPIO_PIN_RESET);
 }
 
 /**
@@ -545,39 +606,97 @@ static void ESP01_ReceiveAndParse(void)
     if (rx_index < 30)
         return;
     
-    // Search for trigger keyword in the raw buffer
+    // Search for occupancy keywords in the raw buffer
     // Don't rely on null termination - search byte by byte using strncmp
-    const char* keyword = MQTT_TRIGGER_KEYWORD;
-    const int keyword_len = strlen(keyword);
     
-    int found = 0;
-    for (int i = 0; i <= rx_index - keyword_len; i++)
+    // Check for "occupied" keyword
+    const char* keyword_occupied = MQTT_KEYWORD_OCCUPIED;
+    const int occupied_len = strlen(keyword_occupied);
+    int found_occupied = 0;
+    
+    for (int i = 0; i <= rx_index - occupied_len; i++)
     {
-        // Compare keyword_len bytes at position i
-        if (strncmp((char*)&rx_buffer[i], keyword, keyword_len) == 0)
+        if (strncmp((char*)&rx_buffer[i], keyword_occupied, occupied_len) == 0)
         {
-            found = 1;
+            found_occupied = 1;
             break;
         }
     }
     
-    if (found)
+    // Check for "empty" keyword
+    const char* keyword_empty = MQTT_KEYWORD_EMPTY;
+    const int empty_len = strlen(keyword_empty);
+    int found_empty = 0;
+    
+    for (int i = 0; i <= rx_index - empty_len; i++)
     {
-        // Found "command" in the buffer - Trigger!
-        
-        // Set control pin HIGH
-        HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
-        
-        // Blink LED rapidly to indicate trigger received
-        for (uint8_t i = 0; i < 5; i++)
+        if (strncmp((char*)&rx_buffer[i], keyword_empty, empty_len) == 0)
         {
-            HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-            HAL_Delay(50);
+            found_empty = 1;
+            break;
         }
-        HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+    }
+    
+    if (found_occupied)
+    {
+        // Smart Parking Logic: Handle "occupied" (car detected)
         
-        // Set flag for main loop to handle capture
-        capture_triggered = 1;
+        if (trigger_state == STATE_IDLE)
+        {
+            // First detection - car approaching spot
+            // Enter STABILIZING state (wait for driver to finish aligning)
+            
+            // Visual feedback: car detected
+            Blink_Status(2, 100);
+            
+            // Start stabilization timer (3 seconds)
+            state_timer = HAL_GetTick();
+            trigger_state = STATE_STABILIZING;
+        }
+        else if (trigger_state == STATE_STABILIZING)
+        {
+            // Additional "occupied" message while stabilizing
+            // This means car is still moving (driver aligning)
+            // Reset timer to wait for stable state
+            
+            state_timer = HAL_GetTick();  // Reset 3s timer
+            
+            // Visual feedback: still aligning
+            HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+        }
+        // Else: In CONFIRMED or COOLDOWN - ignore additional messages
+        
+        // Clear buffer after processing
+        rx_index = 0;
+        memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    }
+    else if (found_empty)
+    {
+        // Smart Parking Logic: Handle "empty" (spot cleared)
+        
+        if (trigger_state == STATE_STABILIZING)
+        {
+            // Car left before parking was confirmed
+            // Driver decided not to park, or reversed out
+            // Return to IDLE immediately
+            
+            trigger_state = STATE_IDLE;
+            
+            // Visual feedback: car left
+            Blink_Status(1, 300);
+        }
+        else if (trigger_state == STATE_COOLDOWN)
+        {
+            // Car left after parking - exit cooldown early
+            // This allows next car to trigger camera without waiting full 5s
+            // Safe assumption: passengers never trigger sensor
+            
+            trigger_state = STATE_IDLE;
+            
+            // Visual feedback: spot cleared, ready for next car
+            Blink_Status(2, 200);
+        }
+        // If in IDLE or CONFIRMED state, ignore (shouldn't happen)
         
         // Clear buffer after processing
         rx_index = 0;
