@@ -10,93 +10,208 @@ import fiftyone as fo
 import fiftyone.zoo as foz
 from torchvision.datasets import CocoDetection
 from sklearn.cluster import KMeans
+from roboflow import Roboflow
 print("Imports successful. Torch version:", torch.__version__, "FiftyOne version:", fo.__version__)
 
 local_coco_path = os.path.join(os.getcwd(), "datasets", "COCO_car")
-local_kitti_path = os.path.join(os.getcwd(), "datasets", "KITTI_car")
 
 #%% Configuration
 coco_max_samples = 12000
-kitti_max_samples = 12000
-enable_kitti = True  # Set to False if you don't want KITTI integration
+enable_coco = True  # Set to False to skip COCO dataset
+enable_roboflow = True  # Set to True to include Roboflow datasets
 enable_filtering = True  # Set to False to use original dataset without filtering
-#%% Load COCO Dataset
-try:
-    coco_dataset = foz.load_zoo_dataset(
-        "coco-2017",
-        split="train",
-        classes=["car"],
-        label_field="detections",
-        # max_samples=coco_max_samples
-    ).filter_labels("detections", fo.ViewField("label") == "car").limit(coco_max_samples)
-    print(f"Loaded COCO dataset with {len(coco_dataset)} car samples")
-except Exception as e:
-    raise ValueError(f"Failed to load COCO dataset: {str(e)}")
 
-#%% Load KITTI Dataset
-kitti_dataset = None
-if enable_kitti:
+# Roboflow Configuration (if enable_roboflow = True)
+ROBOFLOW_API_KEY = "ECe6lJGRmHj38vmxj17r"  # Replace with your single Roboflow API key
+
+# Add your Roboflow datasets here (they will all use the same API key above)
+roboflow_datasets = [
+    {
+        "workspace": "aiml-oydm4",
+        "project": "car-ua0ro",
+        "version": 4,
+        "name": "aiml_cars",
+        "use_all_classes": True  # Use all classes from this dataset
+    },
+    {
+        "workspace": "plane-uurb7",
+        "project": "car-5oqis",
+        "version": 1,
+        "name": "plane_cars",
+        "use_all_classes": True  # Use all classes from this dataset
+    },
+    {
+        "workspace": "hng",
+        "project": "car-uvjtt",
+        "version": 5,
+        "name": "hng_cars",
+        "use_all_classes": False  # Only use 'car' class from this dataset
+    },
+]
+#%% Load COCO Dataset
+coco_dataset = None
+if enable_coco:
     try:
-        car_related_classes = ["Car", "Van", "Truck"]
-        # Load KITTI dataset - FiftyOne supports KITTI detection
-        kitti_dataset = foz.load_zoo_dataset(
-            "kitti",
+        coco_dataset = foz.load_zoo_dataset(
+            "coco-2017",
             split="train",
+            classes=["car"],
             label_field="detections",
-            max_samples=kitti_max_samples
-        ).filter_labels(
-            "detections", 
-            fo.ViewField("label").is_in(car_related_classes)
+            # max_samples=coco_max_samples
+        ).filter_labels("detections", fo.ViewField("label") == "car").limit(coco_max_samples)
+        print(f"Loaded COCO dataset with {len(coco_dataset)} car samples")
+    except Exception as e:
+        print(f"Failed to load COCO dataset: {str(e)}")
+        coco_dataset = None
+        enable_coco = False
+
+#%% Load Roboflow Datasets
+def load_roboflow_dataset(api_key, workspace, project, version, name):
+    """Load a dataset from Roboflow"""
+    try:
+        print(f"Loading Roboflow dataset: {name}...")
+        rf = Roboflow(api_key=api_key)
+        project_obj = rf.workspace(workspace).project(project)
+        dataset = project_obj.version(version).download("coco")
+        
+        # Get the download path
+        download_path = os.path.join(os.getcwd(), project + "-" + str(version))
+        print(f"Downloaded Roboflow dataset '{name}' to {download_path}")
+        
+        return download_path, name
+    except Exception as e:
+        print(f"Failed to load Roboflow dataset '{name}': {str(e)}")
+        return None, None
+
+def convert_roboflow_to_fiftyone(roboflow_path, dataset_name, use_all_classes=True):
+    """Convert Roboflow COCO format to FiftyOne dataset"""
+    try:
+        # Roboflow downloads datasets with train/valid/test splits
+        train_path = os.path.join(roboflow_path, "train")
+        
+        if not os.path.exists(train_path):
+            print(f"Train directory not found: {train_path}")
+            return None
+        
+        # Load annotations
+        ann_file = os.path.join(train_path, "_annotations.coco.json")
+        if not os.path.exists(ann_file):
+            print(f"Annotations file not found: {ann_file}")
+            return None
+        
+        # Create FiftyOne dataset from COCO format
+        fo_dataset = fo.Dataset.from_dir(
+            dataset_dir=train_path,
+            dataset_type=fo.types.COCODetectionDataset,
+            label_field="detections",
+            name=f"roboflow_{dataset_name}"
         )
         
-        # Filter for images that actually have car detections
-        kitti_dataset = kitti_dataset.match(fo.ViewField("detections.detections").length() > 0)
+        if use_all_classes:
+            # Keep all classes but normalize them to "car"
+            print(f"Using all classes from '{dataset_name}' and normalizing to 'car'")
+            def normalize_all_to_car(sample):
+                if sample.detections:
+                    for detection in sample.detections.detections:
+                        detection.label = "car"
+                return sample
+            
+            fo_dataset = fo_dataset.map(normalize_all_to_car)
+            fo_dataset = fo_dataset.match(fo.ViewField("detections.detections").length() > 0)
+        else:
+            # Only keep car-related classes
+            print(f"Filtering only car-related classes from '{dataset_name}'")
+            car_classes = ["car", "vehicle", "automobile", "Car", "Vehicle"]
+            
+            # Normalize labels to "car"
+            def normalize_labels(sample):
+                if sample.detections:
+                    for detection in sample.detections.detections:
+                        if detection.label.lower() in [c.lower() for c in car_classes]:
+                            detection.label = "car"
+                return sample
+            
+            fo_dataset = fo_dataset.map(normalize_labels)
+            
+            # Filter to keep only car detections
+            fo_dataset = fo_dataset.filter_labels("detections", fo.ViewField("label") == "car")
+            fo_dataset = fo_dataset.match(fo.ViewField("detections.detections").length() > 0)
         
-        # Rename all car-related labels to "car" for consistency with COCO
-        def normalize_kitti_labels(sample):
-            """Convert KITTI car-related labels to generic 'car' label"""
-            for detection in sample.detections.detections:
-                if detection.label in car_related_classes:
-                    detection.label = "car"
-            return sample
-        
-        kitti_dataset = kitti_dataset.map(normalize_kitti_labels)
-        
-        print(f"Loaded KITTI dataset with {len(kitti_dataset)} car samples")
+        print(f"Loaded Roboflow dataset '{dataset_name}' with {len(fo_dataset)} samples")
+        return fo_dataset
         
     except Exception as e:
-        print(f"Failed to load KITTI dataset: {str(e)}")
-        print("Continuing with COCO only...")
-        kitti_dataset = None
-        enable_kitti = False
+        print(f"Failed to convert Roboflow dataset '{dataset_name}': {str(e)}")
+        return None
+
+roboflow_fo_datasets = []
+if enable_roboflow:
+    for rb_config in roboflow_datasets:
+        download_path, name = load_roboflow_dataset(
+            ROBOFLOW_API_KEY,  # Use the single API key defined in configuration
+            rb_config["workspace"],
+            rb_config["project"],
+            rb_config["version"],
+            rb_config["name"]
+        )
+        
+        if download_path:
+            use_all_classes = rb_config.get("use_all_classes", True)  # Default to True
+            fo_dataset = convert_roboflow_to_fiftyone(download_path, name, use_all_classes)
+            if fo_dataset:
+                # Add source field to each sample
+                fo_dataset.set_values("source", [f"roboflow_{name}"] * len(fo_dataset))
+                roboflow_fo_datasets.append(fo_dataset)
+    
+    print(f"Successfully loaded {len(roboflow_fo_datasets)} Roboflow datasets")
 
 #%% Combine Datasets
-if enable_kitti and kitti_dataset is not None:
-    # Combine COCO and KITTI datasets
-    print("Combining COCO and KITTI datasets...")
-    
-    # Add a source tag to distinguish datasets
-    coco_dataset = coco_dataset.set_field("source", "coco")
-    kitti_dataset = kitti_dataset.set_field("source", "kitti")
-    
-    # Combine datasets
-    combined_dataset = coco_dataset.concat(kitti_dataset)
-    
-    print(f"Combined dataset: {len(combined_dataset)} total samples")
-    print(f"- COCO samples: {len(coco_dataset)}")
-    print(f"- KITTI samples: {len(kitti_dataset)}")
-    
-    # Use combined dataset for export
-    export_dataset = combined_dataset
-    if enable_kitti:
-        local_export_path = os.path.join(os.getcwd(), "datasets", "Combined_COCO_KITTI")
-    else:
-        local_export_path = local_coco_path
+datasets_to_combine = []
+dataset_sources = []
+
+# Add COCO if enabled
+if enable_coco and coco_dataset is not None:
+    # Clone the dataset and add source field
+    coco_dataset.clone()  # Ensure we have a persistent dataset
+    coco_dataset.set_values("source", ["coco"] * len(coco_dataset))
+    datasets_to_combine.append(coco_dataset)
+    dataset_sources.append(f"COCO ({len(coco_dataset)} samples)")
+
+# Add Roboflow datasets if any
+if enable_roboflow and roboflow_fo_datasets:
+    for fo_ds in roboflow_fo_datasets:
+        # Get source name from the dataset
+        if len(fo_ds) > 0:
+            # The source was already set when we created the dataset
+            source_name = fo_ds.name
+        else:
+            source_name = "roboflow"
+        datasets_to_combine.append(fo_ds)
+        dataset_sources.append(f"{source_name} ({len(fo_ds)} samples)")
+
+# Combine all datasets
+if len(datasets_to_combine) == 0:
+    raise ValueError("No datasets loaded! Enable at least one dataset source.")
+elif len(datasets_to_combine) == 1:
+    print(f"Using single dataset: {dataset_sources[0]}")
+    export_dataset = datasets_to_combine[0]
+    dataset_name_suffix = "COCO" if enable_coco else "Roboflow"
 else:
-    # Use COCO only
-    print("Using COCO dataset only")
-    export_dataset = coco_dataset
-    local_export_path = local_coco_path
+    print(f"Combining {len(datasets_to_combine)} datasets...")
+    for source in dataset_sources:
+        print(f"  - {source}")
+    
+    # Combine all datasets
+    export_dataset = datasets_to_combine[0]
+    for ds in datasets_to_combine[1:]:
+        export_dataset = export_dataset.concat(ds)
+    
+    print(f"Combined dataset: {len(export_dataset)} total samples")
+    
+    dataset_name_suffix = "Combined"
+
+# Set export path
+local_export_path = os.path.join(os.getcwd(), "datasets", f"temp_{dataset_name_suffix}")
 
 #%% Export combined dataset locally
 export_dataset.export(
@@ -214,10 +329,24 @@ if enable_filtering:
     filtered_car_samples = filter_dataset_samples(car_samples, min_car_size=16, max_car_size=300)
     # Use filtered samples for the rest of the pipeline
     car_samples = filtered_car_samples
-    dataset_name = "Enhanced_COCO_KITTI" if enable_kitti else "Enhanced_COCO"
+    
+    # Determine dataset name based on sources
+    if len(datasets_to_combine) > 1:
+        dataset_name = "Enhanced_Combined"
+    elif enable_roboflow:
+        dataset_name = "Enhanced_Roboflow"
+    else:
+        dataset_name = "Enhanced_COCO"
 else:
     print("Using unfiltered dataset...")
-    dataset_name = "COCO_KITTI" if enable_kitti else "COCO_car"
+    
+    # Determine dataset name based on sources
+    if len(datasets_to_combine) > 1:
+        dataset_name = "Combined"
+    elif enable_roboflow:
+        dataset_name = "Roboflow"
+    else:
+        dataset_name = "COCO_car"
 
 #%% Split and Export Enhanced Dataset
 total_samples = len(car_samples)
@@ -233,10 +362,7 @@ val_indices = indices[train_size:train_size + val_size]
 test_indices = indices[train_size + val_size:]
 
 # Export to YOLO format with enhanced validation
-if enable_kitti:
-    output_dir = os.path.join(os.getcwd(), "datasets", dataset_name, "parsed_dataset")
-else:
-    output_dir = os.path.join(os.getcwd(), "datasets", "COCO_car", "parsed_dataset")
+output_dir = os.path.join(os.getcwd(), "datasets", dataset_name, "parsed_dataset")
 
 os.makedirs(output_dir, exist_ok=True)
 for split, indices in [("train", train_indices), ("val", val_indices), ("test", test_indices)]:
@@ -369,11 +495,8 @@ def compute_enhanced_anchors(car_samples, img_size=416, grid_size=13):
 enhanced_anchors = compute_enhanced_anchors(car_samples, img_size=416, grid_size=13)
 
 # Save enhanced anchors
-if enable_kitti:
-    anchor_file = os.path.join(os.getcwd(), "datasets", dataset_name, "anchors.npy")
-else:
-    anchor_file = os.path.join(os.getcwd(), "datasets", "COCO_car", "anchors.npy")
-
+anchor_file = os.path.join(os.getcwd(), "datasets", dataset_name, "anchors.npy")
+os.makedirs(os.path.dirname(anchor_file), exist_ok=True)
 np.save(anchor_file, enhanced_anchors)
 print(f"Enhanced anchors saved to {anchor_file}")
 
@@ -402,16 +525,25 @@ for split in ["train", "val", "test"]:
 dataset_description = f"{dataset_name} dataset"
 if enable_filtering:
     dataset_description += " (with filtering)"
-if enable_kitti:
-    dataset_description += " (COCO + KITTI)"
+
+source_descriptions = []
+if enable_coco:
+    source_descriptions.append("COCO")
+if enable_roboflow and roboflow_fo_datasets:
+    source_descriptions.append(f"{len(roboflow_fo_datasets)} Roboflow dataset(s)")
+
+if len(source_descriptions) > 1:
+    dataset_description += f" ({' + '.join(source_descriptions)})"
 
 print(f"\n{dataset_description} preparation complete! Key improvements:")
 print("✅ Enhanced dataset with better quality control")
 if enable_filtering:
     print("✅ Filtered out tiny and problematic car annotations")
 print("✅ Enhanced anchors computed from quality data")
-if enable_kitti:
-    print("✅ Integrated KITTI automotive dataset")
-    print("✅ Combined COCO variety with KITTI automotive focus")
+if len(datasets_to_combine) > 1:
+    print(f"✅ Combined {len(datasets_to_combine)} datasets for more diverse training data")
+if enable_roboflow:
+    print("✅ Integrated custom Roboflow datasets")
 print("✅ Optimized for automotive detection scenarios")
 print("✅ Ready for training with reduced false positives!")
+# %%

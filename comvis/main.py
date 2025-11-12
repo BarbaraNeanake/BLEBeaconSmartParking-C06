@@ -197,7 +197,7 @@ def compute_anchors_pipeline(config=None, force_recompute: bool = True) -> None:
 
 #%% Quick Start
 device = setup_device()
-config = load_config()
+config = Config.from_json("enhanced_config.json")
 config.print_config()
 
 #%% Train Model

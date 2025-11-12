@@ -1,0 +1,20 @@
+{
+  "img_size": 416,
+  "num_anchors": 5,
+  "num_classes": 1,
+  "num_epochs": 50,
+  "batch_size": 8,
+  "learning_rate": 0.001,
+  "weight_decay": 0.0001,
+  "patience": 15,
+  "lambda_coord": 5.0,
+  "lambda_noobj": 0.5,
+  "lambda_obj": 1.0,
+  "conf_threshold": 0.985,
+  "nms_threshold": 0.3,
+  "max_detections": 12,
+  "dataset_root": "datasets/Enhanced_Roboflow",
+  "model_save_dir": "models",
+  "results_dir": "results",
+  "test_images_dir": "test_images"
+}

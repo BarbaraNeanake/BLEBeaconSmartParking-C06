@@ -34,12 +34,13 @@ class Config:
     val_split: float = 0.1
     test_split: float = 0.1
     
-    # Inference parameters - Simple PoC settings
+    # Inference parameters - Optimized for filtered dataset
     conf_threshold: float = 0.7
     nms_threshold: float = 0.35
+    max_detections: int = 12  # Limit detections per image
     
     # Paths
-    dataset_root: str = "datasets/COCO_car"
+    dataset_root: str = "datasets/Enhanced_COCO"  # Revert to original until Enhanced_COCO is created
     model_save_dir: str = "models"
     results_dir: str = "results"
     test_images_dir: str = "test_images"
