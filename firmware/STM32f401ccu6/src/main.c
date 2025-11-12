@@ -22,8 +22,13 @@
 #define MQTT_BROKER "broker.hivemq.com"
 #define MQTT_PORT 1883
 #define MQTT_CLIENT_ID "SPARK_C06"
-#define MQTT_TOPIC_PUB "SPARK_C06/stm32/test"
-#define MQTT_TOPIC_SUB "SPARK_C06/stm32/command"
+
+// MQTT Topic Configuration - structured for easy maintenance
+#define MQTT_TOPIC "SPARK_C06/stm32/"
+#define MQTT_TRIGGER "command"
+#define MQTT_TOPIC_PUB MQTT_TOPIC "test"
+#define MQTT_TOPIC_SUB MQTT_TOPIC MQTT_TRIGGER
+#define MQTT_TRIGGER_KEYWORD MQTT_TRIGGER  // Used for message parsing
 
 // Buffer sizes
 #define RX_BUFFER_SIZE 512
@@ -536,45 +541,55 @@ static void ESP01_Send_MQTT_SUBSCRIBE(const char* topic)
   */
 static void ESP01_ReceiveAndParse(void)
 {
-    // Check if we have accumulated data in buffer
-    if (rx_index > 5) // Lower threshold to catch data earlier
+    // Wait for enough bytes (MQTT PUBLISH packet is ~37 bytes from ESP-01)
+    if (rx_index < 30)
+        return;
+    
+    // Search for trigger keyword in the raw buffer
+    // Don't rely on null termination - search byte by byte using strncmp
+    const char* keyword = MQTT_TRIGGER_KEYWORD;
+    const int keyword_len = strlen(keyword);
+    
+    int found = 0;
+    for (int i = 0; i <= rx_index - keyword_len; i++)
     {
-        // Null terminate for string functions
-        if (rx_index < RX_BUFFER_SIZE)
-            rx_buffer[rx_index] = '\0';
-        
-        // Simpler approach: Look for our subscribed topic in the buffer
-        // If we see the topic name, it means we received a PUBLISH to that topic
-        if (strstr(rx_buffer, "SPARK_C06/stm32/command") != NULL)
+        // Compare keyword_len bytes at position i
+        if (strncmp((char*)&rx_buffer[i], keyword, keyword_len) == 0)
         {
-            // MQTT PUBLISH to our topic received - Trigger!
-            
-            // Set control pin HIGH
-            HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
-            
-            // Blink LED rapidly to indicate trigger received
-            for (uint8_t i = 0; i < 5; i++)
-            {
-                HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-                HAL_Delay(50);
-            }
-            HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-            
-            // Set flag for main loop to handle capture
-            capture_triggered = 1;
-            
-            // Clear buffer after processing
+            found = 1;
+            break;
+        }
+    }
+    
+    if (found)
+    {
+        // Found "command" in the buffer - Trigger!
+        
+        // Set control pin HIGH
+        HAL_GPIO_WritePin(CONTROL_PORT, CONTROL_PIN, GPIO_PIN_SET);
+        
+        // Blink LED rapidly to indicate trigger received
+        for (uint8_t i = 0; i < 5; i++)
+        {
+            HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+            HAL_Delay(50);
+        }
+        HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+        
+        // Set flag for main loop to handle capture
+        capture_triggered = 1;
+        
+        // Clear buffer after processing
+        rx_index = 0;
+        memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    }
+    else
+    {
+        // No match found, clear buffer if getting too full
+        if (rx_index > RX_BUFFER_SIZE - 100)
+        {
             rx_index = 0;
             memset(rx_buffer, 0, RX_BUFFER_SIZE);
-        }
-        else
-        {
-            // No topic match, clear buffer if getting full
-            if (rx_index > RX_BUFFER_SIZE - 100)
-            {
-                rx_index = 0;
-                memset(rx_buffer, 0, RX_BUFFER_SIZE);
-            }
         }
     }
 }

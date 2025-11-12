@@ -13,6 +13,9 @@ import cv2
 from PIL import Image
 from pydantic import BaseModel
 from huggingface_hub import hf_hub_download
+import json
+from datetime import datetime
+from pathlib import Path
 
 # Import SPARK inference engine
 from spark_engine import create_engine
@@ -31,6 +34,9 @@ latest_image: bytes = None
 
 class AlarmPayload(BaseModel):
     sensor_id: str
+
+class TestDataPayload(BaseModel):
+    data: str
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,6 +61,10 @@ HF_TOKEN = os.environ.get("HF_TOKEN", None)
 
 # Local cache directory for downloaded models
 MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models_cache")
+
+# JSON storage file for post-test endpoint
+# Use /data directory for persistent storage in Hugging Face Spaces
+JSON_STORAGE_FILE = os.environ.get("JSON_STORAGE_FILE", "/data/stored_data.json")
 
 # Global inference engine
 inference_engine = None
@@ -106,6 +116,11 @@ client.tls_set(tls_version=ssl.PROTOCOL_TLS)
 async def startup_event():
     """Connect to MQTT and initialize inference engine when the app starts."""
     global inference_engine
+    
+    # Ensure persistent data directory exists
+    data_dir = Path(JSON_STORAGE_FILE).parent
+    os.makedirs(data_dir, exist_ok=True)
+    logger.info(f"✅ Data directory ready: {data_dir}")
     
     # Initialize MQTT
     if not all([MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD]):
@@ -266,6 +281,115 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
     else:
         print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
         return {"status": "error", "message": "Failed to send MQTT message."}
+
+@app.post("/post-test")
+async def store_test_data(payload: TestDataPayload):
+    """
+    Store string data to a JSON file. Appends to existing data if file exists.
+    """
+    try:
+        file_path = Path(JSON_STORAGE_FILE)
+        
+        # Add timestamp to the payload
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "data": payload.data
+        }
+        
+        # Read existing data if file exists
+        if file_path.exists():
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:  # Check if file is not empty
+                        existing_data = json.loads(content)
+                        if not isinstance(existing_data, list):
+                            existing_data = [existing_data]
+                    else:
+                        # File exists but is empty
+                        existing_data = []
+            except json.JSONDecodeError:
+                # File is corrupted, start fresh
+                logger.warning(f"⚠️ JSON file corrupted, starting fresh")
+                existing_data = []
+        else:
+            existing_data = []
+        
+        # Append new entry
+        existing_data.append(entry)
+        
+        # Write back to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(existing_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"✅ Data stored successfully. Total entries: {len(existing_data)}")
+        
+        return {
+            "status": "success",
+            "message": "Data stored successfully",
+            "total_entries": len(existing_data),
+            "file": str(file_path)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to store data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to store data: {str(e)}")
+
+@app.get("/get-test")
+async def get_test_data():
+    """
+    Retrieve all stored data from the JSON file.
+    """
+    try:
+        file_path = Path(JSON_STORAGE_FILE)
+        
+        if not file_path.exists():
+            return {
+                "status": "success",
+                "message": "No data file found",
+                "data": [],
+                "total_entries": 0,
+                "file": str(file_path)
+            }
+        
+        # Read the file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            
+        if not content:
+            return {
+                "status": "success",
+                "message": "File exists but is empty",
+                "data": [],
+                "total_entries": 0,
+                "file": str(file_path)
+            }
+        
+        # Parse JSON
+        data = json.loads(content)
+        if not isinstance(data, list):
+            data = [data]
+        
+        return {
+            "status": "success",
+            "message": "Data retrieved successfully",
+            "data": data,
+            "total_entries": len(data),
+            "file": str(file_path)
+        }
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Failed to parse JSON: {e}")
+        return {
+            "status": "error",
+            "message": f"JSON file is corrupted: {str(e)}",
+            "data": [],
+            "total_entries": 0,
+            "file": str(file_path)
+        }
+    except Exception as e:
+        logger.error(f"❌ Failed to read data: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
