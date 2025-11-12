@@ -90,6 +90,7 @@ fun HomePage(
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
+            .systemBarsPadding()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
         contentPadding = PaddingValues(bottom = 16.dp)
@@ -98,6 +99,7 @@ fun HomePage(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
+                    .padding(bottom = 10.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ugm_logo),

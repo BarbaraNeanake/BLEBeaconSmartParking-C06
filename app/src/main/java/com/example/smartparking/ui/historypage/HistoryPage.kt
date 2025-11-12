@@ -53,7 +53,8 @@ private fun HistoryContent(
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .systemBarsPadding()
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
@@ -65,7 +66,7 @@ private fun HistoryContent(
                 Image(
                     painter = painterResource(R.drawable.ugm_logo),
                     contentDescription = "UGM Logo",
-                    modifier = Modifier.size(60.dp)
+                    modifier = Modifier.size(80.dp)
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(

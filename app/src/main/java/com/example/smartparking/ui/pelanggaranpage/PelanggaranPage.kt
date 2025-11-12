@@ -56,7 +56,8 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(16.dp)
+            .systemBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
@@ -68,7 +69,7 @@ private fun PelanggaranContent(ui: PelanggaranUiState) {
                 Image(
                     painter = painterResource(R.drawable.ugm_logo),
                     contentDescription = "UGM Logo",
-                    modifier = Modifier.size(60.dp),
+                    modifier = Modifier.size(80.dp),
                     contentScale = ContentScale.Fit
                 )
                 Spacer(Modifier.height(8.dp))

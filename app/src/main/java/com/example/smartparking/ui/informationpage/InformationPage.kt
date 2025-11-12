@@ -55,12 +55,12 @@ fun InformationPage() {
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
-            .windowInsetsPadding(WindowInsets.systemBars)
+            .systemBarsPadding()
+            .padding(16.dp)
     ) {
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(bottom = 20.dp)
         ) {
@@ -69,13 +69,12 @@ fun InformationPage() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp)
                 ) {
                     Image(
                         painter = painterResource(R.drawable.ugm_logo),
                         contentDescription = "UGM Logo",
                         contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(64.dp)
+                        modifier = Modifier.size(80.dp)
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
