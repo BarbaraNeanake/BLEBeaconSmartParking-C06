@@ -1,5 +1,6 @@
 package com.example.smartparking.ui.liveparkingpage
 
+import android.util.Log
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -97,13 +98,14 @@ fun LiveParkingPage(
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .systemBarsPadding()
+            .padding(16.dp),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 8.dp),
+                .padding(bottom=10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
@@ -111,9 +113,9 @@ fun LiveParkingPage(
                 contentDescription = "UGM Logo",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .size(84.dp)
-                    .padding(top = 4.dp, bottom = 6.dp)
+                    .size(80.dp)
             )
+            Spacer(Modifier.height(12.dp))
 
             Text(
                 text = "Live Parking",
@@ -140,10 +142,10 @@ fun LiveParkingPage(
                 }
                 else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
             }
-
-            DeveloperBar(
-                onPick = { id -> vm.forceOccupySlotForDebug(id) }
-            )
+//
+//            DeveloperBar(
+//                onPick = { id -> vm.forceOccupySlotForDebug(id) }
+//            )
         }
     }
 }

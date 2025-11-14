@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
@@ -73,6 +75,7 @@ sealed class Screen(val route: String, val label: String) {
     data object Live     : Screen("live_parking", "Live Parking")
     data object History  : Screen("history", "History")
     data object Info     : Screen("information", "Information")
+    data object Pelanggaran : Screen("pelanggaran", "Pelanggaran")
     data object Logout   : Screen("logout", "Logout")
 }
 
@@ -100,7 +103,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val privateRoutes = remember {
-                    setOf(Screen.Home.route, Screen.Live.route, Screen.History.route, Screen.Info.route, Screen.Logout.route)
+                    setOf(Screen.Home.route, Screen.Live.route, Screen.History.route, Screen.Info.route, Screen.Pelanggaran.route, Screen.Logout.route)
                 }
                 val isPrivate = currentRoute in privateRoutes
                 val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -281,7 +284,7 @@ class MainActivity : ComponentActivity() {
                                 composable(Screen.Info.route) {
                                     InformationPage()
                                 }
-                                composable("pelanggaran") {
+                                composable(Screen.Pelanggaran.route) {
                                     val pelanggaranVm: PelanggaranViewModel = viewModel(
                                         factory = PelanggaranVMFactory(db.sessionDao())
                                     )
@@ -305,15 +308,16 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             if (isPrivate) {
-                                Surface(
-                                    tonalElevation = 3.dp,
-                                    shadowElevation = 6.dp,
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
-                                    shape = MaterialTheme.shapes.extraLarge,
+                                SmallFloatingActionButton(
+                                    shape = CircleShape,
+                                    onClick = { scope.launch { drawerState.open() } },
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                    contentColor = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier
                                         .align(Alignment.TopStart)
                                         .padding(start = 20.dp, top = 45.dp)
-                                ) {
+                                        .size(35.dp)
+                                )  {
                                     IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                         Icon(
                                             imageVector = Icons.Filled.Menu,

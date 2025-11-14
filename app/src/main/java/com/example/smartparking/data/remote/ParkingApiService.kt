@@ -9,6 +9,12 @@ data class UpdateParkingRequest(
     val userid: Int? = null
 )
 
+data class ParkingStats(
+    val total: Int,
+    val occupied: Int,
+    val available: Int
+)
+
 interface ParkingApiService {
 
     // GET /parking/
@@ -39,4 +45,7 @@ interface ParkingApiService {
         @Path("nomor") nomor: Int,
         @Body request: UpdateParkingRequest
     ): Response<Parking>
+
+    @GET("parking/stats")
+    suspend fun getParkingStats(): ParkingStats
 }

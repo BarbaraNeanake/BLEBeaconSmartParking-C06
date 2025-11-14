@@ -27,13 +27,12 @@ class BeaconViewModel : ViewModel() {
         "BeaconA" to "B1",
         "BeaconB"     to "B2",
         "BeaconC"     to "B3",
-        // Tambah jika punya beacon lain:
-        // "Beacon-Corner"   to "B4",
-        // "Beacon-Gate"     to "B5",
+        "Beacon_Gate_In" to "Gate_In",
+        "Beacon_Gate_Out" to "Gate_Out",
     )
 
     private var fingerprint: Map<String, Map<String, Int>> = mapOf(
-        "S1" to mapOf("B1" to -68, "B2" to -77, "B3" to -78),
+        "S1" to mapOf("B1" to -87, "B2" to -88, "B3" to -78),
         "S2" to mapOf("B1" to -75, "B2" to -70, "B3" to -79),
         "S3" to mapOf("B1" to -72, "B2" to -60, "B3" to -55),
         "S4" to mapOf("B1" to -50, "B2" to -55, "B3" to -84),
@@ -57,7 +56,7 @@ class BeaconViewModel : ViewModel() {
     private var scanCallback: ScanCallback? = null
     private var lastEmittedSlot: String? = null
 
-    private val minDistanceGap = 1.0
+    private val minDistanceGap = 15.0
 
     companion object {
         private const val TAG = "BLE"
@@ -66,7 +65,7 @@ class BeaconViewModel : ViewModel() {
 
     init {
         // Jadwalkan estimasi pertama setelah interval, lalu berulang
-//        startRollingEstimation()
+        startRollingEstimation()
     }
 
     @SuppressLint("MissingPermission")
@@ -149,6 +148,8 @@ class BeaconViewModel : ViewModel() {
             lower == "beacona" -> "B1"
             lower == "beaconb" -> "B2"
             lower == "beaconc" -> "B3"
+            lower == "beacon_gate_in" -> "Gate_In"
+            lower == "beacon_gate_out" -> "Gate_Out"
             else -> null
         }
     }
@@ -158,6 +159,17 @@ class BeaconViewModel : ViewModel() {
 
         Log.d(TAG, "📦 samplesByAlias=${samplesByAlias.mapValues { it.value.size }}")
 
+        val gateBeacon = samplesByAlias.keys.find {
+            it.equals("Gate_In", ignoreCase = true) ||
+                    it.equals("Gate_Out", ignoreCase = true)
+        }
+
+        if (gateBeacon != null) {
+            _detectedSlot.value = gateBeacon
+            Log.d(TAG, "🚪 Detected gate beacon: $gateBeacon")
+            samplesByAlias.clear()
+            return
+        }
 
         val means: Map<String, Int> = fingerprint
             .flatMap { it.value.keys }
