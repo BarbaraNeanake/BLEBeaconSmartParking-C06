@@ -69,20 +69,6 @@ class HistoryViewModel(
             }
         }
     }
-
-
-    /** Opsional: fungsi bantu untuk format waktu */
-    fun formatDateTime(timestamp: String): Pair<String, String> {
-        return try {
-            val parser = SimpleDateFormat("yyyy-MM-dd''HH:mm:ss", Locale.getDefault())
-            val date = parser.parse(timestamp)
-            val dateStr = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(date)
-            val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(date)
-            dateStr to timeStr
-        } catch (e: Exception) {
-            "--" to "--"
-        }
-    }
 }
 
 /** Manual ViewModelFactory (jika belum pakai Hilt) */

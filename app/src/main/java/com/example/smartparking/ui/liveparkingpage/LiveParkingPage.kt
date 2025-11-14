@@ -142,10 +142,10 @@ fun LiveParkingPage(
                 }
                 else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
             }
-
-            DeveloperBar(
-                onPick = { id -> vm.forceOccupySlotForDebug(id) }
-            )
+//
+//            DeveloperBar(
+//                onPick = { id -> vm.forceOccupySlotForDebug(id) }
+//            )
         }
     }
 }

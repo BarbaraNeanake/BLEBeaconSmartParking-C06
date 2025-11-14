@@ -62,6 +62,7 @@ fun HomePage(
 ) {
     val parkingStatus by vm.parkingStatus.collectAsState()
     val miniatureStatus by vm.miniatureStatus.collectAsState()
+    val stats by vm.stats.collectAsState()
 
     LaunchedEffect(Unit) {
         vm.fetchParkingStatus()
@@ -71,6 +72,10 @@ fun HomePage(
             vm.fetchParkingStatus()
             vm.fetchMiniatureStatus()
         }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.loadStats()
     }
 
     val bg = remember {
@@ -130,11 +135,15 @@ fun HomePage(
                 contentAlignment = Alignment.Center
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    InfoCard(
-                        title = "Slot Parkir Miniatur FT",
-                        totalSlots = parkingStatus.totalSlots,
-                        usedSlots = parkingStatus.usedSlots
-                    )
+                    if (stats == null) {
+                        Text("Loading...")
+                    } else {
+                        InfoCard(
+                            title = "Slot Parkir Miniatur FT",
+                            totalSlots = stats!!.total,
+                            usedSlots = stats!!.occupied
+                        )
+                    }
                     InfoCard(
                         title = "Slot Parkir Mobil di FT Saat Ini",
                         totalSlots = miniatureStatus.totalSlots,
@@ -160,7 +169,11 @@ fun HomePage(
             }
         }
         item {
-            ParkingTable(rows = parkingLocations, miniatureStatus = miniatureStatus)
+            if (stats == null) {
+                Text("Loading...")
+            } else{
+            ParkingTable(rows = parkingLocations, miniatureStatus = stats!!.available)
+            }
         }
     }
 }
@@ -216,7 +229,7 @@ private fun VerticalDivider() {
 }
 
 @Composable
-private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingStatus) {
+private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: Int) {
     Card(
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(4.dp),
@@ -249,7 +262,7 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: ParkingSt
                 Text("P0", modifier = Modifier.weight(1f))
                 Text("Miniatur", modifier = Modifier.weight(2f))
                 Text(
-                    (miniatureStatus.totalSlots - miniatureStatus.usedSlots).toString(),
+                    text = miniatureStatus.toString(),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f)
                 )

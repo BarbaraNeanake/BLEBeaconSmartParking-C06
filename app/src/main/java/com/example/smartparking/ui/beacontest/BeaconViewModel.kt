@@ -32,7 +32,7 @@ class BeaconViewModel : ViewModel() {
     )
 
     private var fingerprint: Map<String, Map<String, Int>> = mapOf(
-        "S1" to mapOf("B1" to -68, "B2" to -77, "B3" to -78),
+        "S1" to mapOf("B1" to -87, "B2" to -88, "B3" to -78),
         "S2" to mapOf("B1" to -75, "B2" to -70, "B3" to -79),
         "S3" to mapOf("B1" to -72, "B2" to -60, "B3" to -55),
         "S4" to mapOf("B1" to -50, "B2" to -55, "B3" to -84),

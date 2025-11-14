@@ -3,10 +3,12 @@ package com.example.smartparking.ui.homepage
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.smartparking.data.model.Parking
+import com.example.smartparking.data.remote.ParkingStats
 import com.example.smartparking.data.remote.RetrofitProvider
 import com.example.smartparking.data.repository.ParkingRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class ParkingStatus(
@@ -23,6 +25,19 @@ class HomePageViewModel(
 
     private val _miniatureStatus = MutableStateFlow(ParkingStatus())
     val miniatureStatus: StateFlow<ParkingStatus> = _miniatureStatus
+
+    private val _stats = MutableStateFlow<ParkingStats?>(null)
+    val stats = _stats.asStateFlow()
+
+    fun loadStats() {
+        viewModelScope.launch {
+            try {
+                _stats.value = repo.getStats()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
     fun fetchParkingStatus() {
         viewModelScope.launch {

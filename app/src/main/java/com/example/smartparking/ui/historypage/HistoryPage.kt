@@ -219,32 +219,41 @@ private fun HistoryContent(
 }
 
 
-private fun formatTime(time: Any?): String {
-    if (time == null) return "-"
-    return try {
-        val raw = time.toString().replace("T", " ")
-        val cleaned = raw.split(".").firstOrNull() ?: raw
-
-        val parsed = LocalDateTime.parse(cleaned, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-        val wibTime = parsed.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of("Asia/Jakarta"))
-        wibTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-    } catch (e: Exception) {
-        time.toString().split(".").firstOrNull() ?: time.toString()
-    }
-}
+//private fun formatTime(time: Any?): String {
+//    if (time == null) return "-"
+//    return try {
+//        val raw = time.toString().replace("T", " ")
+//        val cleaned = raw.split(".").firstOrNull() ?: raw
+//
+//        val parsed = LocalDateTime.parse(cleaned, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+//        val wibTime = parsed.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of("Asia/Jakarta"))
+//        wibTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+//    } catch (e: Exception) {
+//        time.toString().split(".").firstOrNull() ?: time.toString()
+//    }
+//}
 
 private fun extractDateTimeParts(time: Any?): Pair<String, String> {
     if (time == null) return "-" to "-"
-    val raw = when (time) {
-        is String -> time
-        else -> time.toString()
+
+    return try {
+        val raw = time.toString().replace("T", " ")
+        val cleaned = raw.split(".").first()
+
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        val parsed = LocalDateTime.parse(cleaned, formatter)
+
+        val date = parsed.toLocalDate().toString()
+        val timePart = parsed.toLocalTime().toString()
+
+        date to timePart
+    } catch (e: Exception) {
+        // fallback jika parsing gagal
+        val fallback = time.toString().replace("T", " ")
+        val parts = fallback.split(" ")
+        if (parts.size == 2) parts[0] to parts[1]
+        else fallback to "-"
     }
-    val clean = raw.split(".").firstOrNull() ?: raw
-    return if (clean.contains("T")) {
-        val (date, timePart) = clean.split("T")
-        date to timePart
-    } else if (clean.contains(" ")) {
-        val (date, timePart) = clean.split(" ")
-        date to timePart
-    } else clean to "-"
 }
+
+
