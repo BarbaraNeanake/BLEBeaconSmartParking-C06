@@ -16,6 +16,8 @@ from huggingface_hub import hf_hub_download
 import json
 from datetime import datetime
 from pathlib import Path
+import psycopg2
+from psycopg2 import pool
 
 # Import SPARK inference engine
 from spark_engine import create_engine
@@ -47,11 +49,15 @@ app.add_middleware(
 )
 
 # --- Configuration (from environment variables or Hugging Face Secrets) ---
-MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST")
-MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
-MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
-MQTT_BROKER_PORT = 8883
-SENSOR_DATA_TOPIC = "#"
+MQTT_BROKER_HOST = os.environ.get("MQTT_BROKER_HOST", "broker.hivemq.com")
+MQTT_BROKER_PORT = 1883  # Public broker uses non-TLS port
+SENSOR_DATA_TOPIC = "SPARK_C06/#"
+
+# Parking Slot Debouncing Configuration
+DEBOUNCE_WINDOW_MS = 2000  # 2 seconds - wait time before confirming state change
+COOLDOWN_MS = 5000         # 5 seconds - minimum time between DB updates
+OCCUPIED_KEYWORD = "True"  # Keyword for occupied slot
+AVAILABLE_KEYWORD = "False"  # Keyword for available slot
 
 # Hugging Face Model Configuration
 HF_REPO_ID = os.environ.get("HF_REPO_ID", "danishritonga/SPARK-car-detector")
@@ -63,72 +69,346 @@ HF_TOKEN = os.environ.get("HF_TOKEN", None)
 MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models_cache")
 
 # JSON storage file for post-test endpoint
-# Use /data directory for persistent storage in Hugging Face Spaces
 JSON_STORAGE_FILE = os.environ.get("JSON_STORAGE_FILE", "/data/stored_data.json")
+
+# Neon DB Configuration
+NEON_DB_HOST = os.environ.get("NEON_DB_HOST")
+NEON_DB_NAME = os.environ.get("NEON_DB_NAME")
+NEON_DB_USER = os.environ.get("NEON_DB_USER")
+NEON_DB_PASSWORD = os.environ.get("NEON_DB_PASSWORD")
+NEON_DB_PORT = os.environ.get("NEON_DB_PORT", "5432")
 
 # Global inference engine
 inference_engine = None
 
+# Global database connection pool
+db_pool = None
+
 # In-memory list to store the last 20 messages
 g_messages: List[Dict] = []
+
+# --- Parking Slot Data Structure ---
+class ParkingSlot:
+    def __init__(self, slot_id: str):
+        self.slot_id = slot_id
+        self.is_occupied = False
+        self.last_value = None          # Last sensor reading (True/False)
+        self.last_change_time = None    # When value last changed
+        self.last_db_update = None      # When we last wrote to DB
+        self.pending_value = None       # Value waiting for debounce
+        self.message_count = 0
+    
+    def to_dict(self):
+        return {
+            "slot_id": self.slot_id,
+            "is_occupied": self.is_occupied,
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "last_update": self.last_change_time.isoformat() if self.last_change_time else None,
+            "message_count": self.message_count,
+            "pending_change": self.pending_value if self.pending_value is not None else "none"
+        }
+
+# In-memory storage for parking slot objects
+parking_slots: Dict[str, ParkingSlot] = {}
+
+# --- Database Helper Functions ---
+async def trigger_db_update(slot: ParkingSlot, is_occupied: bool):
+    """
+    Update database with rate limiting to prevent excessive writes.
+    
+    Args:
+        slot: The ParkingSlot object
+        is_occupied: True if slot is occupied, False if available
+    """
+    current_time = datetime.now()
+    
+    # Rate limiting: Don't spam DB
+    if slot.last_db_update:
+        elapsed_ms = (current_time - slot.last_db_update).total_seconds() * 1000
+        if elapsed_ms < 500:  # Max 2 updates per second per slot
+            logger.debug(f"🕐 DB update throttled for slot {slot.slot_id}")
+            return
+    
+    slot.last_db_update = current_time
+    
+    try:
+        await update_neon_db_slot_status(slot.slot_id, is_occupied)
+        logger.info(f"✅ DB updated: Slot {slot.slot_id} → {'OCCUPIED' if is_occupied else 'AVAILABLE'}")
+    except Exception as e:
+        logger.error(f"❌ DB update failed for slot {slot.slot_id}: {e}")
+
+
+async def update_neon_db_slot_status(slot_id: str, is_occupied: bool):
+    """
+    Update parking slot occupancy status in Neon DB.
+    
+    Args:
+        slot_id: The parking slot identifier
+        is_occupied: True if slot is occupied, False if available
+    """
+    global db_pool
+    
+    # Check if DB pool is initialized
+    if db_pool is None:
+        logger.warning(f"⚠️ DB pool not initialized, skipping update for slot {slot_id}")
+        return
+    
+    try:
+        # Get connection from pool
+        conn = db_pool.getconn()
+        cursor = conn.cursor()
+        
+        # Update parking slot status
+        cursor.execute(
+            "UPDATE parking_slots SET is_occupied = %s, updated_at = NOW() WHERE slot_id = %s",
+            (is_occupied, slot_id)
+        )
+        conn.commit()
+        cursor.close()
+        
+        # Return connection to pool
+        db_pool.putconn(conn)
+        
+        logger.info(f"✅ Updated Neon DB: Slot {slot_id} -> {'OCCUPIED' if is_occupied else 'AVAILABLE'}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to update Neon DB for slot {slot_id}: {e}")
+        # Try to return connection to pool even on error
+        try:
+            if 'conn' in locals():
+                db_pool.putconn(conn)
+        except:
+            pass
+
+
+# --- Simple Debouncing Logic ---
+def handle_simple_debounce(slot: ParkingSlot, new_value: bool) -> bool:
+    """
+    Simple time-window debouncing:
+    1. If value is same as last stable value → ignore (duplicate)
+    2. If value changed → wait DEBOUNCE_WINDOW_MS before accepting
+    3. If value stays stable for DEBOUNCE_WINDOW_MS → update DB
+    4. Enforce COOLDOWN_MS between DB updates
+    
+    Args:
+        slot: The ParkingSlot object
+        new_value: New occupancy value (True/False)
+    
+    Returns:
+        True if DB should be updated, False otherwise
+    """
+    current_time = datetime.now()
+    slot.message_count += 1
+    
+    # CASE 1: First message ever
+    if slot.last_value is None:
+        slot.last_value = new_value
+        slot.last_change_time = current_time
+        slot.is_occupied = new_value
+        logger.info(f"✨ Slot {slot.slot_id}: Initial value = {new_value}")
+        return True  # Update DB immediately on first detection
+    
+    # CASE 2: Same value as before (duplicate/stable)
+    if new_value == slot.last_value:
+        # Check if we have a pending different value
+        if slot.pending_value is not None and slot.pending_value != new_value:
+            # Value changed back before debounce completed - cancel pending
+            logger.info(f"🔄 Slot {slot.slot_id}: Pending {slot.pending_value} cancelled (reverted to {new_value})")
+            slot.pending_value = None
+        
+        # No action needed - already at this state
+        logger.debug(f"⏭️ Slot {slot.slot_id}: Duplicate {new_value} ignored")
+        return False
+    
+    # CASE 3: Value changed from last stable value
+    if slot.pending_value is None:
+        # New change detected - start debounce timer
+        slot.pending_value = new_value
+        slot.last_change_time = current_time
+        logger.info(f"⏳ Slot {slot.slot_id}: Value change {slot.last_value} → {new_value} (debouncing...)")
+        return False  # Don't update yet, wait for debounce
+    
+    # CASE 4: We have a pending value - check if debounce period elapsed
+    if slot.pending_value == new_value:
+        elapsed_ms = (current_time - slot.last_change_time).total_seconds() * 1000
+        
+        if elapsed_ms >= DEBOUNCE_WINDOW_MS:
+            # Debounce period passed - confirm the change
+            
+            # Check cooldown period
+            if slot.last_db_update:
+                cooldown_elapsed = (current_time - slot.last_db_update).total_seconds() * 1000
+                if cooldown_elapsed < COOLDOWN_MS:
+                    remaining = COOLDOWN_MS - cooldown_elapsed
+                    logger.debug(f"🛡️ Slot {slot.slot_id}: In cooldown ({remaining:.0f}ms remaining)")
+                    return False
+            
+            # Accept the change
+            logger.info(f"✅ Slot {slot.slot_id}: Change confirmed {slot.last_value} → {new_value} (stable for {elapsed_ms:.0f}ms)")
+            slot.last_value = new_value
+            slot.is_occupied = new_value
+            slot.pending_value = None
+            return True  # Update DB
+        else:
+            # Still waiting for debounce
+            remaining = DEBOUNCE_WINDOW_MS - elapsed_ms
+            logger.debug(f"⏳ Slot {slot.slot_id}: Debouncing... ({remaining:.0f}ms remaining)")
+            return False
+    else:
+        # Pending value changed again - restart debounce
+        logger.info(f"🔄 Slot {slot.slot_id}: Value changed again to {new_value} (restarting debounce)")
+        slot.pending_value = new_value
+        slot.last_change_time = current_time
+        return False
+
+
+# --- MQTT Message Handlers ---
+def handle_parking_slot_occupancy(topic: str, payload: str):
+    """
+    Handle parking slot occupancy with simple time-window debouncing.
+    Uses OCCUPIED_KEYWORD and AVAILABLE_KEYWORD for parsing.
+    """
+    slot_id = topic.split('/')[-1]
+    
+    try:
+        # Parse occupancy status using configured keywords
+        is_occupied = payload.strip() == OCCUPIED_KEYWORD
+        
+        # Validate payload (must be either OCCUPIED_KEYWORD or AVAILABLE_KEYWORD)
+        if payload.strip() not in [OCCUPIED_KEYWORD, AVAILABLE_KEYWORD]:
+            logger.warning(f"⚠️ Slot {slot_id}: Invalid payload '{payload}' (expected '{OCCUPIED_KEYWORD}' or '{AVAILABLE_KEYWORD}')")
+            return
+        
+        # Get or create slot
+        if slot_id not in parking_slots:
+            parking_slots[slot_id] = ParkingSlot(slot_id)
+            logger.info(f"✨ New parking slot registered: {slot_id}")
+        
+        slot = parking_slots[slot_id]
+        
+        # Apply simple debouncing
+        should_update_db = handle_simple_debounce(slot, is_occupied)
+        
+        # Trigger DB update if needed
+        if should_update_db:
+            import asyncio
+            try:
+                asyncio.create_task(trigger_db_update(slot, is_occupied))
+            except RuntimeError:
+                logger.info(f"🔄 [PLACEHOLDER] Would update DB: Slot {slot_id} → {is_occupied}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing slot {slot_id}: {e}")
+
+
+def log_message_to_memory(topic: str, payload: str):
+    """
+    Store message in the g_messages list (keeps last 20 messages).
+    Only logs non-parking messages to reduce spam.
+    """
+    # Only log non-parking messages (reduce spam)
+    if not topic.startswith("SPARK_C06/isOccupied/"):
+        device_id = topic.split('/')[-1]
+        log_entry = {
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "topic": topic,
+            "device_id": device_id,
+            "payload": payload
+        }
+        g_messages.insert(0, log_entry)
+        if len(g_messages) > 20:
+            g_messages.pop()
+
 
 # --- MQTT Callbacks ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("✅ [Backend] Connected to HiveMQ Cloud!")
+        print("✅ [Backend] Connected to HiveMQ Public Broker!")
         client.subscribe(SENSOR_DATA_TOPIC)
         print(f"👂 [Backend] Subscribed to topic: {SENSOR_DATA_TOPIC}")
     else:
         print(f"❌ [Backend] Failed to connect, return code {rc}")
 
+
 def on_message(client, userdata, msg):
     """
-    This function stores the incoming message in the g_messages list.
+    Main MQTT message router - delegates to specific handlers based on topic.
+    Implements simple debouncing for parking slot occupancy messages.
     """
-    device_id = msg.topic.split('/')[-1]
-    payload = msg.payload.decode()
+    topic = msg.topic
+    payload = msg.payload.decode().strip()
     
-    print(f"📩 [Backend] Received from '{device_id}': {payload}")
+    # Only print non-parking messages to reduce spam
+    if not topic.startswith("SPARK_C06/isOccupied/"):
+        print(f"📩 [Backend] Received from '{topic}': {payload}")
     
-    log_entry = {
-        "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
-        "device_id": device_id,
-        "payload": payload
-    }
+    # Route to specific handlers based on topic
+    if topic.startswith("SPARK_C06/isOccupied/"):
+        handle_parking_slot_occupancy(topic, payload)
     
-    # Add the newest message to the start of the list
-    g_messages.insert(0, log_entry)
+    # Add more topic handlers here as needed
+    # elif topic.startswith("SPARK_C06/temperature/"):
+    #     handle_temperature_update(topic, payload)
+    # elif topic.startswith("SPARK_C06/ping/"):
+    #     handle_ping_response(topic, payload)
     
-    # Keep the list trimmed to the last 20 messages
-    if len(g_messages) > 20:
-        g_messages.pop()
+    # Log significant messages
+    log_message_to_memory(topic, payload)
 
 # --- MQTT Client Setup ---
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="fastapi-test-backend")
 client.on_connect = on_connect
 client.on_message = on_message
 
-# Set credentials and enable TLS for a secure connection
-client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-client.tls_set(tls_version=ssl.PROTOCOL_TLS)
 
 @app.on_event("startup")
 async def startup_event():
-    """Connect to MQTT and initialize inference engine when the app starts."""
-    global inference_engine
+    """Connect to MQTT, initialize database pool, and initialize inference engine when the app starts."""
+    global inference_engine, db_pool
     
     # Ensure persistent data directory exists
     data_dir = Path(JSON_STORAGE_FILE).parent
     os.makedirs(data_dir, exist_ok=True)
     logger.info(f"✅ Data directory ready: {data_dir}")
     
-    # Initialize MQTT
-    if not all([MQTT_BROKER_HOST, MQTT_USERNAME, MQTT_PASSWORD]):
-        logger.warning("❌ MQTT credentials not set in environment variables!")
+    # Initialize Neon DB connection pool
+    if all([NEON_DB_HOST, NEON_DB_NAME, NEON_DB_USER, NEON_DB_PASSWORD]):
+        try:
+            db_pool = psycopg2.pool.SimpleConnectionPool(
+                minconn=1,
+                maxconn=10,
+                host=NEON_DB_HOST,
+                database=NEON_DB_NAME,
+                user=NEON_DB_USER,
+                password=NEON_DB_PASSWORD,
+                port=NEON_DB_PORT,
+                sslmode='require'
+            )
+            logger.info(f"✅ Neon DB connection pool initialized (host: {NEON_DB_HOST})")
+            
+            # Test connection
+            test_conn = db_pool.getconn()
+            test_conn.close()
+            db_pool.putconn(test_conn)
+            logger.info(f"✅ Neon DB connection test successful")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Neon DB connection pool: {e}")
+            db_pool = None
     else:
+        logger.warning("⚠️ Neon DB credentials not fully configured, database features disabled")
+        logger.warning(f"   Missing: {', '.join([k for k, v in {'NEON_DB_HOST': NEON_DB_HOST, 'NEON_DB_NAME': NEON_DB_NAME, 'NEON_DB_USER': NEON_DB_USER, 'NEON_DB_PASSWORD': NEON_DB_PASSWORD}.items() if not v])}")
+    
+    # Initialize MQTT
+    if not MQTT_BROKER_HOST:
+        logger.warning("❌ MQTT broker host not set, using default: broker.hivemq.com")
+    
+    try:
         client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
         client.loop_start()
-        logger.info("✅ MQTT connected")
+        logger.info(f"✅ MQTT connected to {MQTT_BROKER_HOST}:{MQTT_BROKER_PORT}")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to MQTT broker: {e}")
     
     # Download model from Hugging Face
     try:
@@ -172,9 +452,21 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Disconnect from MQTT when the app shuts down."""
+    """Disconnect from MQTT and close database pool when the app shuts down."""
+    global db_pool
+    
+    # Disconnect MQTT
     client.loop_stop()
     client.disconnect()
+    logger.info("✅ MQTT disconnected")
+    
+    # Close database connection pool
+    if db_pool is not None:
+        try:
+            db_pool.closeall()
+            logger.info("✅ Neon DB connection pool closed")
+        except Exception as e:
+            logger.error(f"❌ Error closing DB pool: {e}")
 
 # --- API Endpoints ---
 @app.get("/")
@@ -185,6 +477,7 @@ async def root():
         "version": "1.0.0",
         "features": {
             "car_detection": "/detect - POST image for car detection",
+            "parking_slots": "/parking-slots - GET all parking slot statuses",
             "sensor_logs": "/logs - GET latest sensor messages",
             "alarm_trigger": "/pelanggaran - POST to trigger sensor alarm",
             "health_check": "/health - API health status"
@@ -195,14 +488,26 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     mqtt_status = "connected" if client.is_connected() else "disconnected"
+    db_status = "connected" if db_pool is not None else "not configured"
+    
+    # Test DB connection if pool exists
+    if db_pool is not None:
+        try:
+            test_conn = db_pool.getconn()
+            db_pool.putconn(test_conn)
+            db_status = "connected"
+        except Exception as e:
+            db_status = f"error: {str(e)}"
     
     return {
         "status": "healthy", 
         "message": "API is running",
         "mqtt_status": mqtt_status,
+        "database_status": db_status,
         "model_loaded": inference_engine is not None,
         "huggingface_repo": HF_REPO_ID,
-        "recent_messages": len(g_messages)
+        "recent_messages": len(g_messages),
+        "parking_slots_tracked": len(parking_slots)
     }
 
 @app.post("/detect")
@@ -262,14 +567,54 @@ async def get_logs() -> List[Dict]:
     """Returns the most recent messages stored in memory."""
     return g_messages
 
+@app.get("/parking-slots", summary="Get current parking slot occupancy status")
+async def get_parking_slots():
+    """
+    Returns the current occupancy status of all parking slots with debouncing info.
+    Data is received from MQTT topic: SPARK_C06/isOccupied/{slotID}
+    """
+    return {
+        "status": "success",
+        "total_slots": len(parking_slots),
+        "slots": [slot.to_dict() for slot in parking_slots.values()],
+        "summary": {
+            "occupied": sum(1 for slot in parking_slots.values() if slot.is_occupied),
+            "available": sum(1 for slot in parking_slots.values() if not slot.is_occupied),
+            "pending": sum(1 for slot in parking_slots.values() if slot.pending_value is not None)
+        },
+        "config": {
+            "debounce_window_ms": DEBOUNCE_WINDOW_MS,
+            "cooldown_ms": COOLDOWN_MS,
+            "occupied_keyword": OCCUPIED_KEYWORD,
+            "available_keyword": AVAILABLE_KEYWORD
+        },
+        "performance": {
+            "total_messages": sum(slot.message_count for slot in parking_slots.values())
+        }
+    }
+
+@app.get("/parking-slots/{slot_id}", summary="Get specific parking slot status")
+async def get_parking_slot(slot_id: str):
+    """
+    Returns the occupancy status and debouncing info of a specific parking slot.
+    """
+    if slot_id not in parking_slots:
+        raise HTTPException(status_code=404, detail=f"Slot {slot_id} not found")
+    
+    slot = parking_slots[slot_id]
+    return {
+        "status": "success",
+        "slot": slot.to_dict()
+    }
+
 @app.post("/pelanggaran")
 async def trigger_buzzer(sensor_payload: AlarmPayload):
     """
     Endpoint to trigger a buzzer on a specific sensor device.
     Publishes a message to the corresponding MQTT topic.
     """
-    sensor_id = sensor_payload.sensor_id
-    alarm_topic = f"violation/{sensor_id}"
+    slotID = sensor_payload.sensor_id
+    alarm_topic = f"SPARK_C06/ping/{slotID}"
     payload_to_send = "True"
 
     result = client.publish(alarm_topic, payload_to_send)
@@ -277,7 +622,7 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
     # Use the globally defined MQTT client to publish the message
     if result.rc == mqtt.MQTT_ERR_SUCCESS:
         print(f"⬆️  [Backend] Alarm signal sent to topic: {alarm_topic}")
-        return {"status": "success", "topic": alarm_topic, "message": f"Alarm signal sent to sensor {sensor_id}."}
+        return {"status": "success", "topic": alarm_topic, "message": f"Alarm signal sent to sensor {slotID}."}
     else:
         print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
         return {"status": "error", "message": "Failed to send MQTT message."}
