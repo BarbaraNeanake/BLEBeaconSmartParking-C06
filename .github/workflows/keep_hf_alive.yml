@@ -1,0 +1,13 @@
+name: Keep Hugging Face Space Alive
+
+on:
+  schedule:
+    # Runs at the beginning of every 3rd hour
+    - cron: '0 */3 * * *'
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send request to Hugging Face Space
+        run: curl -s "https://danishritonga-spark-backend.hf.space" > /dev/null
