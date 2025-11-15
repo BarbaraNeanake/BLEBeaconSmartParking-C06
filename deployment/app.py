@@ -59,6 +59,9 @@ COOLDOWN_MS = 5000         # 5 seconds - minimum time between DB updates
 OCCUPIED_KEYWORD = "True"  # Keyword for occupied slot
 AVAILABLE_KEYWORD = "False"  # Keyword for available slot
 
+# Slot Regions Configuration (for hogging detection)
+SLOT_REGIONS_FILE = os.environ.get("SLOT_REGIONS_FILE", "/data/slot_regions.json")
+
 # Hugging Face Model Configuration
 HF_REPO_ID = os.environ.get("HF_REPO_ID", "danishritonga/SPARK-car-detector")
 HF_MODEL_FILENAME = os.environ.get("HF_MODEL_FILENAME", "best_model.npz")
@@ -111,10 +114,162 @@ class ParkingSlot:
 # In-memory storage for parking slot objects
 parking_slots: Dict[str, ParkingSlot] = {}
 
+# In-memory storage for slot region definitions (for hogging detection)
+slot_regions: Dict[str, Dict] = {}
+
+# --- Slot Region Management Functions ---
+def load_slot_regions():
+    """
+    Load parking slot region definitions from JSON file.
+    
+    Expected format:
+    {
+        "A01": {
+            "corners": [[x1, y1], [x2, y2], [x3, y3], [x4, y4]],
+            "name": "Slot A01"
+        },
+        "A02": { ... }
+    }
+    """
+    global slot_regions
+    
+    try:
+        file_path = Path(SLOT_REGIONS_FILE)
+        if file_path.exists():
+            with open(file_path, 'r') as f:
+                slot_regions = json.load(f)
+            logger.info(f"✅ Loaded {len(slot_regions)} slot regions from {file_path}")
+        else:
+            logger.warning(f"⚠️ Slot regions file not found: {file_path}")
+            slot_regions = {}
+    except Exception as e:
+        logger.error(f"❌ Failed to load slot regions: {e}")
+        slot_regions = {}
+
+
+def hogging_detection(detections: List[Dict], slot_regions: Dict[str, Dict]) -> Dict:
+    """
+    Detect if any car is hogging multiple parking slots using X-axis bounds.
+    Simple method: checks if car's x_min and x_max fall outside any single slot's x bounds.
+    
+    Args:
+        detections: List of detection dicts with 'bbox' key [x_min, y_min, x_max, y_max]
+        slot_regions: Dict of {slot_id: {corners: [[x,y], ...], name: ...}}
+    
+    Returns:
+        Dict with hogging analysis:
+        {
+            "violations": [...],
+            "slot_occupancy": {...},
+            "total_violations": int,
+            "method": "x_axis_bounds"
+        }
+    
+    Note: This is a simple method with limitations:
+    - Ignores Y-axis (depth/row information)
+    - May give false positives for multi-row parking
+    - Best for single-row, side-by-side parking slots
+    """
+    violations = []
+    slot_occupancy = {}
+    
+    # Initialize slot occupancy
+    for slot_id in slot_regions.keys():
+        slot_occupancy[slot_id] = {
+            "is_occupied": False,
+            "car_count": 0,
+            "cars": [],
+            "is_violation": False
+        }
+    
+    # Calculate X-bounds for each slot
+    slot_x_bounds = {}
+    for slot_id, slot_data in slot_regions.items():
+        corners = slot_data.get('corners', [])
+        if len(corners) < 3:
+            logger.warning(f"⚠️ Slot {slot_id}: Invalid corners (need at least 3)")
+            continue
+        
+        x_coords = [c[0] for c in corners]
+        slot_x_bounds[slot_id] = {
+            "x_min": min(x_coords),
+            "x_max": max(x_coords)
+        }
+    
+    # Check each detected car
+    for detection in detections:
+        car_bbox = detection.get('bbox', [])
+        if len(car_bbox) != 4:
+            continue
+        
+        x_min_car, y_min_car, x_max_car, y_max_car = car_bbox
+        occupied_slots = []
+        slot_overlaps = {}
+        
+        # Check which slots this car overlaps with (X-axis only)
+        for slot_id, bounds in slot_x_bounds.items():
+            x_min_slot = bounds["x_min"]
+            x_max_slot = bounds["x_max"]
+            
+            # Check if car's X-range overlaps with slot's X-range
+            # Overlap exists if: NOT (car completely left of slot OR car completely right of slot)
+            x_overlap = not (x_max_car < x_min_slot or x_min_car > x_max_slot)
+            
+            if x_overlap:
+                # Calculate overlap amount (for debugging/analysis)
+                overlap_start = max(x_min_car, x_min_slot)
+                overlap_end = min(x_max_car, x_max_slot)
+                overlap_width = overlap_end - overlap_start
+                car_width = x_max_car - x_min_car
+                overlap_percentage = overlap_width / car_width if car_width > 0 else 0
+                
+                occupied_slots.append(slot_id)
+                slot_overlaps[slot_id] = {
+                    "overlap_percentage": float(overlap_percentage),
+                    "car_x_range": [float(x_min_car), float(x_max_car)],
+                    "slot_x_range": [float(x_min_slot), float(x_max_slot)]
+                }
+                
+                # Update slot occupancy
+                slot_occupancy[slot_id]["is_occupied"] = True
+                slot_occupancy[slot_id]["car_count"] += 1
+                slot_occupancy[slot_id]["cars"].append({
+                    "bbox": car_bbox,
+                    "confidence": float(detection.get('confidence', 0)),
+                    "overlap_percentage": float(overlap_percentage)
+                })
+        
+        # If car occupies multiple slots, it's a violation (hogging)
+        if len(occupied_slots) > 1:
+            violation = {
+                "car_bbox": car_bbox,
+                "confidence": float(detection.get('confidence', 0)),
+                "occupied_slots": occupied_slots,
+                "num_slots": len(occupied_slots),
+                "slot_overlaps": slot_overlaps,
+                "violation_type": "slot_hogging",
+                "severity": "high" if len(occupied_slots) >= 3 else "medium"
+            }
+            violations.append(violation)
+            
+            # Mark all affected slots as violations
+            for slot_id in occupied_slots:
+                slot_occupancy[slot_id]["is_violation"] = True
+    
+    return {
+        "violations": violations,
+        "slot_occupancy": slot_occupancy,
+        "total_violations": len(violations),
+        "affected_slots": [slot_id for slot_id, data in slot_occupancy.items() if data["is_violation"]],
+        "total_slots": len(slot_regions),
+        "method": "x_axis_bounds",
+        "note": "Simple X-axis method. Limitations: ignores Y-axis, may have false positives in multi-row parking."
+    }
+
 # --- Database Helper Functions ---
 async def trigger_db_update(slot: ParkingSlot, is_occupied: bool):
     """
-    Update database with rate limiting to prevent excessive writes.
+    Placeholder for database update with rate limiting.
     
     Args:
         slot: The ParkingSlot object
@@ -130,38 +285,95 @@ async def trigger_db_update(slot: ParkingSlot, is_occupied: bool):
             return
     
     slot.last_db_update = current_time
-    
-    try:
-        await update_neon_db_slot_status(slot.slot_id, is_occupied)
-        logger.info(f"✅ DB updated: Slot {slot.slot_id} → {'OCCUPIED' if is_occupied else 'AVAILABLE'}")
-    except Exception as e:
-        logger.error(f"❌ DB update failed for slot {slot.slot_id}: {e}")
+    logger.info(f"🔄 [PLACEHOLDER] Would update DB: Slot {slot.slot_id} → {'OCCUPIED' if is_occupied else 'AVAILABLE'}")
 
 
-async def update_neon_db_slot_status(slot_id: str, is_occupied: bool):
+async def get_occupancy_status() -> Dict[str, Dict[str, any]]:
     """
-    Update parking slot occupancy status in Neon DB.
+    Retrieve all parking slot statuses and userids from Neon DB.
     
-    Args:
-        slot_id: The parking slot identifier
-        is_occupied: True if slot is occupied, False if available
+    Returns:
+        Dict of {slot_id: {"status": str, "userid": int}}
+        Returns empty dict if DB is not configured or query fails
     """
     global db_pool
     
     # Check if DB pool is initialized
     if db_pool is None:
-        logger.warning(f"⚠️ DB pool not initialized, skipping update for slot {slot_id}")
-        return
+        logger.warning("⚠️ DB pool not initialized, cannot fetch slot status")
+        return {}
     
     try:
         # Get connection from pool
         conn = db_pool.getconn()
         cursor = conn.cursor()
         
-        # Update parking slot status
+        # Query all parking slots with their status and userid
         cursor.execute(
-            "UPDATE parking_slots SET is_occupied = %s, updated_at = NOW() WHERE slot_id = %s",
-            (is_occupied, slot_id)
+            "SELECT nomor, status, userid FROM parking_slots ORDER BY nomor"
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        # Return connection to pool
+        db_pool.putconn(conn)
+        
+        # Build dictionary with status and userid
+        slot_data = {
+            row[0]: {
+                "status": row[1].lower(),
+                "userid": row[2] if row[2] is not None else 0
+            }
+            for row in rows
+        }
+        logger.info(f"✅ Retrieved {len(slot_data)} slot statuses from Neon DB")
+        
+        return slot_data
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to retrieve slot status from Neon DB: {e}")
+        # Try to return connection to pool even on error
+        try:
+            if 'conn' in locals():
+                db_pool.putconn(conn)
+        except:
+            pass
+        return {}
+
+
+async def insert_pelanggaran(userid: int, nomor: str, jenis_pelanggaran: str) -> bool:
+    """
+    Insert a violation record into the pelanggaran table.
+    
+    Args:
+        userid: The user ID who committed the violation
+        nomor: The parking slot number (nomor from parking table)
+        jenis_pelanggaran: Type of violation (e.g., "Slot Hogging")
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    global db_pool
+    
+    # Check if DB pool is initialized
+    if db_pool is None:
+        logger.warning("⚠️ DB pool not initialized, cannot insert violation")
+        return False
+    
+    # Skip if userid is 0 (empty slot)
+    if userid == 0:
+        logger.info(f"ℹ️ Skipping violation insert for empty slot (userid=0)")
+        return False
+    
+    try:
+        # Get connection from pool
+        conn = db_pool.getconn()
+        cursor = conn.cursor()
+        
+        # Insert violation record
+        cursor.execute(
+            "INSERT INTO pelanggaran (userid, nomor, jenis_pelanggaran) VALUES (%s, %s, %s)",
+            (userid, nomor, jenis_pelanggaran)
         )
         conn.commit()
         cursor.close()
@@ -169,16 +381,18 @@ async def update_neon_db_slot_status(slot_id: str, is_occupied: bool):
         # Return connection to pool
         db_pool.putconn(conn)
         
-        logger.info(f"✅ Updated Neon DB: Slot {slot_id} -> {'OCCUPIED' if is_occupied else 'AVAILABLE'}")
+        logger.info(f"✅ Inserted violation: userid={userid}, nomor={nomor}, type={jenis_pelanggaran}")
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Failed to update Neon DB for slot {slot_id}: {e}")
+        logger.error(f"❌ Failed to insert violation: {e}")
         # Try to return connection to pool even on error
         try:
             if 'conn' in locals():
                 db_pool.putconn(conn)
         except:
             pass
+        return False
 
 
 # --- Simple Debouncing Logic ---
@@ -295,6 +509,7 @@ def handle_parking_slot_occupancy(topic: str, payload: str):
             try:
                 asyncio.create_task(trigger_db_update(slot, is_occupied))
             except RuntimeError:
+                # Event loop not running, log placeholder
                 logger.info(f"🔄 [PLACEHOLDER] Would update DB: Slot {slot_id} → {is_occupied}")
         
     except Exception as e:
@@ -370,6 +585,9 @@ async def startup_event():
     data_dir = Path(JSON_STORAGE_FILE).parent
     os.makedirs(data_dir, exist_ok=True)
     logger.info(f"✅ Data directory ready: {data_dir}")
+    
+    # Load slot regions for hogging detection
+    load_slot_regions()
     
     # Initialize Neon DB connection pool
     if all([NEON_DB_HOST, NEON_DB_NAME, NEON_DB_USER, NEON_DB_PASSWORD]):
@@ -476,8 +694,9 @@ async def root():
         "message": "SPARK Backend - Car Detection & IoT",
         "version": "1.0.0",
         "features": {
-            "car_detection": "/detect - POST image for car detection",
-            "parking_slots": "/parking-slots - GET all parking slot statuses",
+            "car_detection": "/detect - POST image for car detection with hogging detection",
+            "parking_slots": "/parking-slots - GET all parking slot statuses (MQTT-based)",
+            "slot_regions": "/slot-regions - GET/POST slot region definitions",
             "sensor_logs": "/logs - GET latest sensor messages",
             "alarm_trigger": "/pelanggaran - POST to trigger sensor alarm",
             "health_check": "/health - API health status"
@@ -513,7 +732,8 @@ async def health_check():
 @app.post("/detect")
 async def detect_cars(file: UploadFile = File(...)):
     """
-    Car detection endpoint using SPARK inference engine
+    Car detection endpoint using SPARK inference engine.
+    Includes slot hogging detection if slot regions are configured.
     """
     if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="File must be an image")
@@ -546,12 +766,103 @@ async def detect_cars(file: UploadFile = File(...)):
             }
             detections_serializable.append(det_dict)
         
+        # Three-stage hogging detection workflow
+        hogging_analysis = None
+        db_status = None
+        slot_data = None
+        verification_results = None
+        
+        if slot_regions:
+            # STAGE 1: Read slot status and userid from database
+            slot_data = await get_occupancy_status()
+            logger.info(f"📊 Stage 1: Retrieved {len(slot_data)} slot statuses from DB")
+            
+            # Extract just status for backward compatibility
+            db_status = {slot_id: data["status"] for slot_id, data in slot_data.items()}
+            
+            # STAGE 2: Verify DB status with model detections
+            # Filter detections to only those in slots marked as 'occupied' in DB
+            occupied_slots = [slot_id for slot_id, status in db_status.items() if status == 'occupied']
+            logger.info(f"🔍 Stage 2: Verifying {len(occupied_slots)} occupied slots against model detections")
+            
+            # Build verification report
+            verification_results = {
+                "db_occupied_slots": occupied_slots,
+                "total_db_occupied": len(occupied_slots),
+                "total_detections": len(detections_serializable),
+                "note": "Comparing DB status with model detections for occupied slots"
+            }
+            
+            # STAGE 3: Run hogging detection on verified occupied slots
+            # Only analyze detections if we have both slot regions and detections
+            if len(detections_serializable) > 0:
+                hogging_analysis = hogging_detection(detections_serializable, slot_regions)
+                
+                # Cross-reference with DB status
+                hogging_analysis["db_verification"] = {
+                    "db_occupied_slots": occupied_slots,
+                    "slots_with_detected_cars": list(hogging_analysis["slot_occupancy"].keys()),
+                    "mismatches": []
+                }
+                
+                # Find mismatches: DB says occupied but model says not, or vice versa
+                for slot_id in slot_regions.keys():
+                    db_says_occupied = db_status.get(slot_id, 'available') == 'occupied'
+                    model_says_occupied = hogging_analysis["slot_occupancy"].get(slot_id, {}).get("is_occupied", False)
+                    
+                    if db_says_occupied != model_says_occupied:
+                        hogging_analysis["db_verification"]["mismatches"].append({
+                            "slot_id": slot_id,
+                            "db_status": "occupied" if db_says_occupied else "available",
+                            "model_status": "occupied" if model_says_occupied else "available",
+                            "discrepancy_type": "false_positive" if model_says_occupied else "false_negative"
+                        })
+                
+                logger.info(f"🎯 Stage 3: Hogging analysis complete - {hogging_analysis['total_violations']} violations found")
+                
+                if hogging_analysis["total_violations"] > 0:
+                    logger.warning(f"⚠️ Detected {hogging_analysis['total_violations']} slot hogging violations!")
+                    for violation in hogging_analysis["violations"]:
+                        slots_str = ", ".join(violation['occupied_slots'])
+                        logger.warning(f"   🚗 Car (conf: {violation['confidence']:.2f}) hogging slots: {slots_str}")
+                        
+                        # Find a userid from the occupied slots (skip userid=0)
+                        violator_userid = None
+                        violator_slot = None
+                        for slot_id in violation['occupied_slots']:
+                            slot_info = slot_data.get(slot_id, {})
+                            userid = slot_info.get('userid', 0)
+                            if userid > 0:
+                                violator_userid = userid
+                                violator_slot = slot_id
+                                break
+                        
+                        # Insert violation into pelanggaran table
+                        if violator_userid and violator_slot:
+                            await insert_pelanggaran(
+                                userid=violator_userid,
+                                nomor=violator_slot,
+                                jenis_pelanggaran="Slot Hogging"
+                            )
+                            logger.info(f"📝 Logged violation for userid={violator_userid} at slot {violator_slot}")
+                        else:
+                            logger.warning(f"⚠️ No valid userid found in hogging slots: {slots_str}")
+                
+                if hogging_analysis["db_verification"]["mismatches"]:
+                    logger.warning(f"⚠️ Found {len(hogging_analysis['db_verification']['mismatches'])} DB/model mismatches")
+            else:
+                logger.info("ℹ️ No detections found, skipping hogging analysis")
+        
         result = {
             "success": True,
             "detections": detections_serializable,
             "inference_time": float(stats.get("avg_time", 0.0)),
             "image_shape": [int(x) for x in image_array.shape],
-            "num_detections": len(detections_serializable)
+            "num_detections": len(detections_serializable),
+            "db_status": db_status,
+            "slot_data": slot_data if slot_regions else None,
+            "verification_results": verification_results,
+            "hogging_analysis": hogging_analysis
         }
         
         logger.info(f"Detected {len(detections)} cars in {stats.get('avg_time', 0.0):.3f}s")
@@ -735,6 +1046,71 @@ async def get_test_data():
     except Exception as e:
         logger.error(f"❌ Failed to read data: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to read data: {str(e)}")
+
+@app.post("/slot-regions")
+async def update_slot_regions(regions: Dict[str, Dict]):
+    """
+    Update parking slot region definitions.
+    
+    Expected payload:
+    {
+        "A01": {
+            "corners": [[100, 200], [300, 200], [300, 400], [100, 400]],
+            "name": "Slot A01"
+        },
+        "A02": { ... }
+    }
+    """
+    global slot_regions
+    
+    try:
+        # Validate structure
+        for slot_id, region_data in regions.items():
+            if 'corners' not in region_data:
+                raise HTTPException(status_code=400, detail=f"Slot {slot_id} missing 'corners' field")
+            if len(region_data['corners']) < 3:
+                raise HTTPException(status_code=400, detail=f"Slot {slot_id} must have at least 3 corners")
+        
+        # Save to file
+        file_path = Path(SLOT_REGIONS_FILE)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_path, 'w') as f:
+            json.dump(regions, f, indent=2)
+        
+        # Update in-memory
+        slot_regions = regions
+        
+        logger.info(f"✅ Updated {len(regions)} slot regions")
+        
+        return {
+            "status": "success",
+            "message": f"Updated {len(regions)} slot regions",
+            "slots": list(regions.keys()),
+            "file": str(file_path)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to update slot regions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/slot-regions")
+async def get_slot_regions():
+    """
+    Get current parking slot region definitions.
+    """
+    return {
+        "status": "success",
+        "regions": slot_regions,
+        "total_slots": len(slot_regions),
+        "detection_method": "x_axis_bounds",
+        "config": {
+            "file": SLOT_REGIONS_FILE,
+            "note": "Using X-axis bounds method for hogging detection. Can be changed to other methods later."
+        }
+    }
 
 if __name__ == "__main__":
     import uvicorn
