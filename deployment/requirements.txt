@@ -4,7 +4,7 @@ uvicorn[standard]
 python-multipart
 pydantic
 paho-mqtt
-psycopg2
+psycopg2-binary
 
 # Core inference dependencies
 numpy>=1.19.0
