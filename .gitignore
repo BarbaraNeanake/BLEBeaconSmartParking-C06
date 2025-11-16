@@ -51,7 +51,7 @@ gradle-wrapper.jar
 /deployment/spark_engine/__pycache__/
 deployment/models/
 deployment/test_engine.py
-
+deployment/anchors.npy
 
 # comvis
 /comvis/datasets
@@ -65,3 +65,4 @@ deployment/test_engine.py
 comvis/analyze_dataset.py
 comvis/car_size_distribution.png
 /datasets
+

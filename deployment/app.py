@@ -71,9 +71,6 @@ HF_TOKEN = os.environ.get("HF_TOKEN", None)
 # Local cache directory for downloaded models
 MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models_cache")
 
-# JSON storage file for post-test endpoint
-JSON_STORAGE_FILE = os.environ.get("JSON_STORAGE_FILE", "/data/stored_data.json")
-
 # Neon DB Configuration
 NEON_DB_HOST = os.environ.get("NEON_DB_HOST")
 NEON_DB_NAME = os.environ.get("NEON_DB_NAME")
