@@ -284,7 +284,7 @@ class SPARKEngine:
 
 
 def create_engine(model_path: str, config_path: str, 
-                           input_size: int = 416, backend: str = "resnet34") -> SPARKEngine:
+                           input_size: int = 416, anchor_path: str, backend: str = "resnet34") -> SPARKEngine:
     """
     Factory function to create inference engine
     
@@ -297,4 +297,4 @@ def create_engine(model_path: str, config_path: str,
     Returns:
         SPARKEngine instance
     """
-    return SPARKEngine(model_path, config_path, input_size, backend)
+    return SPARKEngine(model_path, config_path, input_size, anchor_path, backend)
