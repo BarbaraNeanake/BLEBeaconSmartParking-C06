@@ -393,35 +393,26 @@ async def get_parking_slots_api():
 
 
 class ParkingStatusRequest(BaseModel):
-    slot_id: Union[str, List[str]]
+    slot_id: str
 
 @app.post("/parkingStatus")
 async def get_parking_status(request: ParkingStatusRequest):
     """
-    Returns the current occupancy status of parking slot(s) from the database.
+    Returns the current occupancy status of a parking slot from the database.
     This reflects the actual database state updated via MQTT messages.
     
     Parameters:
-    - slot_id: Required. Can be a single slot ID (string) or a list of slot IDs (array).
+    - slot_id: Required. A single slot ID (string).
+    
+    Returns:
+    - The status value (e.g., "occupied" or "available") or None if not found.
     """
-    # Normalize to list
-    slot_ids = [request.slot_id] if isinstance(request.slot_id, str) else request.slot_id
+    slot_status = await db_manager.get_slot_status(request.slot_id)
     
-    # Handle single or multiple slot IDs
-    results = []
-    not_found = []
+    if slot_status is None:
+        return None
     
-    for slot_id in slot_ids:
-        slot_status = await db_manager.get_slot_status(slot_id)
-        
-        if slot_status is not None:
-            results.append({
-                "slot_id": slot_status["nomor"],
-                "status": slot_status["status"],
-                "userid": slot_status["userid"]
-            })
-    
-    return results
+    return slot_status["status"]
 
 @app.post("/pelanggaran")
 async def trigger_buzzer(sensor_payload: AlarmPayload):
