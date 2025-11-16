@@ -36,9 +36,6 @@ latest_image: bytes = None
 class AlarmPayload(BaseModel):
     sensor_id: str
 
-class TestDataPayload(BaseModel):
-    data: str
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,7 +56,7 @@ OCCUPIED_KEYWORD = "True"  # Keyword for occupied slot
 AVAILABLE_KEYWORD = "False"  # Keyword for available slot
 
 # Slot Regions Configuration (for hogging detection)
-SLOT_REGIONS_FILE = os.environ.get("SLOT_REGIONS_FILE", "/data/slot_regions.json")
+SLOT_REGIONS_FILE = os.environ.get("SLOT_REGIONS_FILE", "./slot_regions.json")
 
 # Hugging Face Model Configuration
 HF_REPO_ID = os.environ.get("HF_REPO_ID", "danishritonga/SPARK-car-detector")
@@ -102,11 +99,6 @@ client = mqtt_manager.create_client(
 async def startup_event():
     """Connect to MQTT, initialize database pool, and initialize inference engine when the app starts."""
     global inference_engine
-    
-    # Ensure persistent data directory exists
-    data_dir = Path(JSON_STORAGE_FILE).parent
-    os.makedirs(data_dir, exist_ok=True)
-    logger.info(f"✅ Data directory ready: {data_dir}")
     
     # Load slot regions for hogging detection
     slot_region_manager.load(SLOT_REGIONS_FILE)
