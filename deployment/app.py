@@ -7,7 +7,7 @@ import time
 import os
 import io
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 import numpy as np
 import cv2
 from PIL import Image
@@ -391,38 +391,49 @@ async def get_parking_slots_api():
         }
     }
 
-@app.get("/parking-slots/{slot_id}", summary="Get specific parking slot status")
-async def get_parking_slot(slot_id: str):
-    """
-    Returns the occupancy status and debouncing info of a specific parking slot.
-    """
-    parking_slots = mqtt_manager.get_parking_slots()
-    if slot_id not in parking_slots:
-        raise HTTPException(status_code=404, detail=f"Slot {slot_id} not found")
-    
-    slot = parking_slots[slot_id]
-    return {
-        "status": "success",
-        "slot": slot.to_dict()
-    }
 
-@app.get("/parkingStatus/{slot_id}", summary="Get parking slot occupancy status from database")
-async def get_parking_status(slot_id: str):
+class ParkingStatusRequest(BaseModel):
+    slot_id: Union[str, List[str]]
+
+@app.post("/parkingStatus")
+async def get_parking_status(request: ParkingStatusRequest):
     """
-    Returns the current occupancy status of a specific parking slot from the database.
+    Returns the current occupancy status of parking slot(s) from the database.
     This reflects the actual database state updated via MQTT messages.
+    
+    Parameters:
+    - slot_id: Required. Can be a single slot ID (string) or a list of slot IDs (array).
     """
-    slot_status = await db_manager.get_slot_status(slot_id)
+    # Normalize to list
+    slot_ids = [request.slot_id] if isinstance(request.slot_id, str) else request.slot_id
     
-    if slot_status is None:
-        raise HTTPException(status_code=404, detail=f"Slot {slot_id} not found in database")
+    # Handle single or multiple slot IDs
+    results = []
+    not_found = []
     
-    return {
-        "slot_id": slot_status["nomor"],
-        "status": slot_status["status"],
-        "is_occupied": slot_status["status"] == "occupied",
-        "userid": slot_status["userid"]
+    for slot_id in slot_ids:
+        slot_status = await db_manager.get_slot_status(slot_id)
+        
+        if slot_status is None:
+            not_found.append(slot_id)
+        else:
+            results.append({
+                "slot_id": slot_status["nomor"],
+                "status": slot_status["status"],
+                "is_occupied": slot_status["status"] == "occupied",
+                "userid": slot_status["userid"]
+            })
+    
+    response = {
+        "total_requested": len(slot_ids),
+        "total_found": len(results),
+        "slots": results
     }
+    
+    if not_found:
+        response["not_found"] = not_found
+    
+    return response
 
 @app.post("/pelanggaran")
 async def trigger_buzzer(sensor_payload: AlarmPayload):
@@ -446,60 +457,7 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
 
 
 
-@app.post("/slot-regions")
-async def update_slot_regions(regions: Dict[str, Dict]):
-    """
-    Update parking slot region definitions.
-    
-    Expected payload:
-    {
-        "A01": {
-            "corners": [[100, 200], [300, 200], [300, 400], [100, 400]],
-            "name": "Slot A01"
-        },
-        "A02": { ... }
-    }
-    """
-    try:
-        # Validate structure
-        for slot_id, region_data in regions.items():
-            if 'corners' not in region_data:
-                raise HTTPException(status_code=400, detail=f"Slot {slot_id} missing 'corners' field")
-            if len(region_data['corners']) < 3:
-                raise HTTPException(status_code=400, detail=f"Slot {slot_id} must have at least 3 corners")
-        
-        # Save to file using slot region manager
-        slot_region_manager.save(regions, SLOT_REGIONS_FILE)
-        
-        return {
-            "status": "success",
-            "message": f"Updated {len(regions)} slot regions",
-            "slots": list(regions.keys()),
-            "file": SLOT_REGIONS_FILE
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to update slot regions: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/slot-regions")
-async def get_slot_regions_api():
-    """
-    Get current parking slot region definitions.
-    """
-    slot_regions = slot_region_manager.get()
-    return {
-        "status": "success",
-        "regions": slot_regions,
-        "total_slots": len(slot_regions),
-        "detection_method": "x_axis_bounds",
-        "config": {
-            "file": SLOT_REGIONS_FILE,
-            "note": "Using X-axis bounds method for hogging detection. Can be changed to other methods later."
-        }
-    }
 
 if __name__ == "__main__":
     import uvicorn
