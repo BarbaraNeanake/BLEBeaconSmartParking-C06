@@ -169,12 +169,9 @@ class MainActivity : ComponentActivity() {
                 val liveVm: LiveParkingViewModel = viewModel(factory = LiveParkingVMFactory(db.sessionDao()))
                 val userId: Int? = session?.userId
 
-                val api = remember { com.example.smartparking.data.repository.UserRepository(db.sessionDao()) }
-                val vm: EditPassViewModel = viewModel(factory = EditPassVMFactory(api))
-
                 LaunchedEffect(Unit) {
-                    beaconVm.detectedSlot.collect { slotId ->
-                        liveVm.applyBeaconDetection(slotId)
+                    beaconVm.userLocation.collect { userlocation ->
+                        liveVm.applyBeaconDetection(userlocation)
                     }
 
                 }
@@ -256,6 +253,8 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 composable(Screen.EditPass.route) {
+                                    val userRepo = UserRepository(db.sessionDao())
+                                    val vm: EditPassViewModel = viewModel(factory = EditPassVMFactory(userRepo))
                                     EditPassPage(
                                         vm = vm,
                                         onBackToLogin = {

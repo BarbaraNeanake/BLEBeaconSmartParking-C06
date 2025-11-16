@@ -2,10 +2,9 @@ package com.example.smartparking.ui.liveparkingpage
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.smartparking.data.model.Parking
-import com.example.smartparking.data.remote.RetrofitProvider
 import com.example.smartparking.data.repository.LogActivityRepository
 import com.example.smartparking.data.repository.ParkingRepository
+import com.example.smartparking.data.remote.RetrofitProvider
 import com.example.smartparking.data.repository.dao.SessionDao
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,9 +27,7 @@ class LiveParkingViewModel(
 
     private var cacheSlotToNomor: Map<String, Int> = emptyMap()
 
-    private var releaseJob: kotlinx.coroutines.Job? = null
-    private val releaseDelayMs = 15_000L
-
+    // SLOT YANG SEDANG DITEMPATI USER SAAT INI
     private var lastOccupiedSlotId: String? = null
 
     init {
@@ -48,7 +45,6 @@ class LiveParkingViewModel(
 
                 val rows = resp.body().orEmpty()
 
-                // Build map status
                 val statusMap = rows.associate { row ->
                     val id = extractSlotId(row.lokasi) ?: "S${row.nomor}"
                     id to (row.status?.lowercase() ?: "available")
@@ -69,19 +65,18 @@ class LiveParkingViewModel(
         }
     }
 
-    fun applyBeaconDetection(slotId: String?, currentUserIdOverride: Int? = null) {
-        val id = slotId?.trim()?.takeIf {
-            it.isNotEmpty() && !it.equals("Belum terdeteksi", true)
-        } ?: return
+    fun applyBeaconDetection(rawLocation: String?, currentUserIdOverride: Int? = null) {
+        val newLoc = rawLocation?.trim()
 
-        // Hindari spam deteksi slot yang sama
-        if (id == lastOccupiedSlotId) return
+        if (newLoc == null) {
+            println("ℹ️ BEACON → User menjauh dari slot, abaikan.")
+            return
+        }
 
         viewModelScope.launch {
             try {
                 val sess = sessionDao.getSessionOnce()
                 val userId = currentUserIdOverride ?: sess?.userId
-                val role = sess?.role
 
                 if (userId == null) {
                     _error.value = "User belum login"
@@ -89,79 +84,92 @@ class LiveParkingViewModel(
                 }
 
                 when {
-                    // 🟢 GATE IN — hanya catat log masuk area
-                    id.equals("Gate_In", ignoreCase = true) -> {
-                        logUserActivity(userId, "gate_in", "entered")
-                        println("🚪 User $userId masuk area parkir (Gate_In)")
+
+                    // =======================
+                    // 1️⃣ USER MASUK GATE_IN
+                    // =======================
+                    newLoc.equals("Gate_In", ignoreCase = true) -> {
+                        println("🚪 User $userId masuk area (Gate_In)")
+                        logUserActivity(userId, "Gate_In", "entered")
+                        return@launch
                     }
 
-                    // 🔴 GATE OUT — tandai keluar dan bebaskan slot sebelumnya
-                    id.equals("Gate_Out", ignoreCase = true) -> {
-                        // jika sebelumnya ada slot ditempati, bebaskan
-                        lastOccupiedSlotId?.let { oldSlotId ->
-                            updateSlotStatus(
-                                slotId = oldSlotId,
-                                status = "available",
-                                userId = null
-                            )
-                            _statusById.value = _statusById.value.toMutableMap().apply {
-                                this[oldSlotId] = "available"
-                            }
-                        }
-
-                        logUserActivity(userId, "gate_out", "exited")
+                    // =======================
+                    // 2️⃣ USER KELUAR (GATE_OUT)
+                    // =======================
+                    newLoc.equals("Gate_Out", ignoreCase = true) -> {
                         println("🚪 User $userId keluar area parkir (Gate_Out)")
+
+                        // fallback: cari slot occupied jika lastOccupiedSlot hilang
+//                        val slotToFree = lastOccupiedSlotId
+//                            ?: _statusById.value.entries
+//                                .firstOrNull { it.value == "occupied" }?.key
+//
+//                        if (slotToFree != null) {
+//                            println("🔓 Membebaskan slot $slotToFree (Gate_Out)")
+//                            updateSlotStatus(slotToFree, "available", 0) // Opsi A
+//                            _statusById.value = _statusById.value
+//                                .toMutableMap().apply {
+//                                    this[slotToFree] = "available"
+//                                }
+//                        } else {
+//                            println("⚠ Tidak ada slot yang bisa dibebaskan saat Gate_Out")
+//                        }
+
+                        logUserActivity(userId, "Gate_Out", "exited")
 
                         lastOccupiedSlotId = null
                         reload()
+                        return@launch
                     }
 
-                    // 🚗 SLOT PARKIR (S1–S5)
-                    id.startsWith("S", ignoreCase = true) -> {
-                        // Pastikan user tidak sudah parkir di slot lain
+                    // =======================
+                    // 3️⃣ USER DI SLOT PARKIR (S1..S5)
+                    // =======================
+                    newLoc.startsWith("S", ignoreCase = true) -> {
 
-                        val activeSlot = _statusById.value.entries.find { (_, status) ->
-                            status == "occupied"
+                        val slotStatus = _statusById.value[newLoc]
+
+                        // Jika slot memang sudah ditempati user → abaikan
+                        if (slotStatus == "occupied" && lastOccupiedSlotId == newLoc) {
+                            println("ℹ️ Slot $newLoc sudah occupied oleh user ini, abaikan.")
+                            return@launch
                         }
 
-                        if (activeSlot != null && activeSlot.key != id) {
-                            println("⚠️ User $userId sudah parkir di ${activeSlot.key}, bebaskan dulu.")
-                            updateSlotStatus(
-                                slotId = activeSlot.key,
-                                status = "available",
-                                userId = userId
-                            )
+                        println("🚗 User $userId parkir di $newLoc")
+
+                        // Bebaskan slot lama jika beda
+                        lastOccupiedSlotId?.let { oldSlot ->
+                            if (oldSlot != newLoc) {
+                                println("🔄 Bebaskan slot lama $oldSlot")
+                                updateSlotStatus(oldSlot, "available", userId)
+                            }
                         }
 
-                        // Update slot baru jadi occupied
-                        updateSlotStatus(
-                            slotId = id,
-                            status = "occupied",
-                            userId = userId
-                        )
+                        // Update slot baru
+                        updateSlotStatus(newLoc, "occupied", userId)
+                        logUserActivity(userId, newLoc, "parking")
 
-                        logUserActivity(userId, id, "parking")
+                        _statusById.value = _statusById.value.toMutableMap()
+                            .apply { this[newLoc] = "occupied" }
 
-                        _statusById.value = _statusById.value.toMutableMap().apply {
-                            this[id] = "occupied"
-                        }
+                        lastOccupiedSlotId = newLoc.uppercase()   // <-- PENTING
 
-                        lastOccupiedSlotId = id
-                        println("✅ User $userId parkir di $id")
                         reload()
+                        return@launch
                     }
 
-                    // 🔹 Selain itu abaikan
                     else -> {
-                        println("ℹ️ Deteksi area $id diabaikan (bukan gate atau slot).")
+                        println("ℹ️ Deteksi area $newLoc diabaikan.")
+                        return@launch
                     }
                 }
+
             } catch (e: Exception) {
-                _error.value = e.message ?: "Gagal memperbarui status parkir"
+                _error.value = e.message ?: "Gagal update parkir"
             }
         }
     }
-
 
     private suspend fun logUserActivity(
         userId: Int,
@@ -172,10 +180,6 @@ class LiveParkingViewModel(
         try {
             if (cacheSlotToNomor.isEmpty()) reload()
 
-            val slotKey = slotId ?: area
-            val nomorFromCache = cacheSlotToNomor[slotKey]
-            val nomor = nomorFromCache ?: findNomorByLokasi(slotKey)
-
             val resp = logRepo.sendLog(
                 userid = userId,
                 area = area,
@@ -185,7 +189,7 @@ class LiveParkingViewModel(
             if (!resp.isSuccessful) {
                 println("⚠️ Gagal mencatat aktivitas: ${resp.code()} ${resp.message()}")
             } else {
-                println("✅ Log aktivitas terkirim: $status di $area (nomor=$nomor)")
+                println("✅ Log aktivitas terkirim: $status di $area")
             }
         } catch (e: Exception) {
             println("⚠️ Error kirim log aktivitas: ${e.localizedMessage}")
@@ -195,9 +199,10 @@ class LiveParkingViewModel(
     private suspend fun updateSlotStatus(
         slotId: String,
         status: String,
-        userId: Int?
+        userId: Int
     ) {
         var nomor: Int? = cacheSlotToNomor[slotId]
+
         if (nomor == null) {
             nomor = findNomorByLokasi(slotId)
             if (nomor != null) {
@@ -206,12 +211,13 @@ class LiveParkingViewModel(
                 }
             }
         }
+
         requireNotNull(nomor) { "Slot $slotId tidak ditemukan di database" }
 
         val resp = repo.updateParking(
             nomor = nomor!!,
             status = status,
-            userID = userId
+            userID = userId   // <-- Opsi A: tidak null
         )
 
         if (!resp.isSuccessful) {
@@ -222,13 +228,17 @@ class LiveParkingViewModel(
     private suspend fun findNomorByLokasi(slotId: String): Int? {
         val resp = repo.getParkings()
         if (!resp.isSuccessful) return null
-        val rows = resp.body().orEmpty()
 
-        rows.firstOrNull { it.lokasi.equals(slotId, ignoreCase = true) }?.nomor?.let { return it }
+        val rows = resp.body().orEmpty()
+        rows.firstOrNull { it.lokasi.equals(slotId, ignoreCase = true) }
+            ?.nomor?.let { return it }
+
         for (r in rows) {
             val token = extractSlotId(r.lokasi)
-            if (token != null && token.equals(slotId, ignoreCase = true)) return r.nomor
+            if (token != null && token.equals(slotId, ignoreCase = true))
+                return r.nomor
         }
+
         return null
     }
 

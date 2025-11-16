@@ -79,7 +79,6 @@ class SignUpViewModel(
         val s = _ui.value
         if (s.loading) return@launch
 
-        // Validasi FE
         if (s.name.isBlank()) { fail("Nama wajib diisi"); return@launch }
         if (!isValidEmail(s.email)) { fail("Email tidak valid"); return@launch }
         if (!isValidPlate(s.licensePlate)) { fail("Plat mobil tidak valid"); return@launch }
@@ -91,7 +90,7 @@ class SignUpViewModel(
         val newUser = User(
             nama = s.name.trim(),
             email = s.email.trim(),
-            license = s.licensePlate.trim().uppercase(),
+            license = s.licensePlate.trim(),
             password = s.password.trim(),
             roles = "Mahasiswa"
         )
@@ -101,17 +100,17 @@ class SignUpViewModel(
         if (resp.isSuccessful) {
             _ui.update { it.copy(loading = false, registered = true) }
         } else {
-            val msg = "Gagal register: ${resp.code()} ${resp.message()}"
-            _ui.update { it.copy(loading = false, error = msg) }
+            val msg = when (resp.code()) {
+                409 -> "Email sudah digunakan"
+                else -> "Gagal register: ${resp.code()} ${resp.message()}"
+            }
+            _ui.update { it.copy(loading = false, error = msg, registered = false) }
         }
-
-        delay(900)
-
-        _ui.update { it.copy(loading = false, registered = true) }
     }
 
+
     /* ----------------- Helpers ----------------- */
-    private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\$")
+    private val EMAIL_REGEX = Regex("^[A-Za-z0-9._%+-]+@mail\\.ugm\\.ac\\.id$")
     private fun isValidEmail(s: String) = EMAIL_REGEX.matches(s)
 
     // Validasi sederhana plat mobil (huruf/angka/spasi/tanda minus), minimal 5 char

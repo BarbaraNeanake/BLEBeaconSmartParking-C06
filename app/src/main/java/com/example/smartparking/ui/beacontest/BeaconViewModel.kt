@@ -20,14 +20,13 @@ data class BeaconData(
     val rssiSamples: MutableList<Int> = mutableListOf()
 )
 
-
 class BeaconViewModel : ViewModel() {
 
     private val aliasByDeviceName: Map<String, String> = mapOf(
         "BeaconA" to "B1",
-        "BeaconB"     to "B2",
-        "BeaconC"     to "B3",
-        "Beacon_Gate_In" to "Gate_In",
+        "BeaconB" to "B2",
+        "BeaconC" to "B3",
+        "Beacon03" to "Gate_In",
         "Beacon_Gate_Out" to "Gate_Out",
     )
 
@@ -43,11 +42,16 @@ class BeaconViewModel : ViewModel() {
         fingerprint = newFp
     }
 
+    private val _userLocation = MutableStateFlow<String?>(null)
+    val userLocation: StateFlow<String?> = _userLocation
+
     private val _beacons = MutableStateFlow<List<BeaconData>>(emptyList())
     val beacons: StateFlow<List<BeaconData>> = _beacons
 
-    private val _detectedSlot = MutableStateFlow<String?>(null)
-    val detectedSlot: StateFlow<String?> = _detectedSlot
+    private val _parkingSlotStatus = MutableStateFlow<Map<String, Boolean>>(
+        fingerprint.keys.associateWith { false }
+    )
+    val parkingSlotStatus: StateFlow<Map<String, Boolean>> = _parkingSlotStatus
 
     private val samplesByAlias: MutableMap<String, MutableList<Int>> = mutableMapOf()
 
@@ -56,7 +60,13 @@ class BeaconViewModel : ViewModel() {
     private var scanCallback: ScanCallback? = null
     private var lastEmittedSlot: String? = null
 
+    private var lastKnownParkedSlot: String? = null
+
     private val minDistanceGap = 15.0
+    private val noConfidentClearMs = 10_000L // 10 seconds
+    private val rssiAbsentThreshold = -95 // if averages are below this, considered "far"
+
+    private var lastConfidentTimestamp = 0L
 
     companion object {
         private const val TAG = "BLE"
@@ -64,7 +74,6 @@ class BeaconViewModel : ViewModel() {
     }
 
     init {
-        // Jadwalkan estimasi pertama setelah interval, lalu berulang
         startRollingEstimation()
     }
 
@@ -75,15 +84,15 @@ class BeaconViewModel : ViewModel() {
 
         _beacons.value = emptyList()
 
-        val settings = android.bluetooth.le.ScanSettings.Builder()
-            .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        val filters = emptyList<android.bluetooth.le.ScanFilter>()
+        val filters = emptyList<ScanFilter>()
 
-        val cb = object : android.bluetooth.le.ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
-                val name = result.scanRecord?.deviceName ?: result.device.name ?: return
+        val cb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val name = result.scanRecord?.deviceName ?: result.device?.name ?: return
 
                 if (!name.startsWith("Beacon", ignoreCase = true)) return
 
@@ -91,7 +100,6 @@ class BeaconViewModel : ViewModel() {
                 val rssi = result.rssi
 
                 Log.d(TAG, "📡 Terbaca BLE: name=$name, addr=$address, rssi=$rssi")
-
 
                 val alias = getAliasFor(name)
                 if (alias != null) {
@@ -113,7 +121,7 @@ class BeaconViewModel : ViewModel() {
             }
 
             override fun onScanFailed(errorCode: Int) {
-                android.util.Log.e("BLE", "Scan failed: $errorCode")
+                Log.e(TAG, "Scan failed: $errorCode")
             }
         }
 
@@ -148,7 +156,7 @@ class BeaconViewModel : ViewModel() {
             lower == "beacona" -> "B1"
             lower == "beaconb" -> "B2"
             lower == "beaconc" -> "B3"
-            lower == "beacon_gate_in" -> "Gate_In"
+            lower == "beacon03" -> "Gate_In"
             lower == "beacon_gate_out" -> "Gate_Out"
             else -> null
         }
@@ -156,6 +164,12 @@ class BeaconViewModel : ViewModel() {
 
     private fun estimateAndEmit() {
         if (fingerprint.isEmpty()) return
+
+        if (samplesByAlias.isEmpty() || samplesByAlias.values.all { it.isEmpty() }) {
+            Log.d(TAG, "❌ Tidak ada sampel BLE sama sekali. Deteksi dibatalkan.")
+            _userLocation.value = null
+            return
+        }
 
         Log.d(TAG, "📦 samplesByAlias=${samplesByAlias.mapValues { it.value.size }}")
 
@@ -165,9 +179,22 @@ class BeaconViewModel : ViewModel() {
         }
 
         if (gateBeacon != null) {
-            _detectedSlot.value = gateBeacon
+            _userLocation.value = gateBeacon
             Log.d(TAG, "🚪 Detected gate beacon: $gateBeacon")
+
+            if (gateBeacon.equals("Gate_Out", ignoreCase = true)) {
+                lastKnownParkedSlot?.let { parkedSlot ->
+                    Log.d(TAG, "Gate_Out detected — marking slot $parkedSlot as EMPTY")
+                    val updated = _parkingSlotStatus.value.toMutableMap()
+                    updated[parkedSlot] = false
+                    _parkingSlotStatus.value = updated
+                    lastKnownParkedSlot = null
+                }
+            }
+
             samplesByAlias.clear()
+            lastEmittedSlot = null
+            lastConfidentTimestamp = System.currentTimeMillis()
             return
         }
 
@@ -178,6 +205,11 @@ class BeaconViewModel : ViewModel() {
                 val samples = samplesByAlias[alias]
                 if (samples.isNullOrEmpty()) MISSING_DEFAULT else samples.average().toInt()
             }
+
+        val slotAliases = fingerprint.flatMap { it.value.keys }.distinct()
+        val slotMeans = slotAliases.map { means[it] ?: MISSING_DEFAULT }
+
+        val allMissingOrWeak = slotMeans.all { it <= rssiAbsentThreshold || it == MISSING_DEFAULT }
 
         var bestSlot: String? = null
         var bestDist = Double.MAX_VALUE
@@ -202,12 +234,45 @@ class BeaconViewModel : ViewModel() {
 
         val confident = (secondBest - bestDist) >= minDistanceGap
 
-        if (bestSlot != null && confident && bestSlot != lastEmittedSlot) {
-            lastEmittedSlot = bestSlot
-            _detectedSlot.value = bestSlot
-            Log.d(TAG, "Detected slot = $bestSlot (dist=$bestDist, gap=${secondBest - bestDist})")
+        if (bestSlot != null && confident) {
+            lastConfidentTimestamp = System.currentTimeMillis()
+
+            // update user location to this slot
+            if (bestSlot != lastEmittedSlot) {
+                lastEmittedSlot = bestSlot
+                _userLocation.value = bestSlot
+                Log.d(TAG, "Detected slot = $bestSlot (dist=$bestDist, gap=${secondBest - bestDist})")
+            } else {
+                _userLocation.value = bestSlot
+            }
+
+            val updated = _parkingSlotStatus.value.toMutableMap()
+            updated[bestSlot] = true
+            _parkingSlotStatus.value = updated
+            lastKnownParkedSlot = bestSlot
+
         } else {
-            Log.d(TAG, "No confident slot. best=$bestSlot dist=$bestDist gap=${secondBest - bestDist}")
+            val now = System.currentTimeMillis()
+
+            if (allMissingOrWeak) {
+                Log.d(TAG, "All slot beacon signals missing/weak -> clearing userLocation")
+                _userLocation.value = null
+                lastEmittedSlot = null
+                if (lastConfidentTimestamp == 0L) lastConfidentTimestamp = now - noConfidentClearMs - 1L
+            } else {
+                if (lastConfidentTimestamp == 0L) {
+                    // no confident seen yet
+                    lastConfidentTimestamp = now
+                }
+                val timeSinceConfident = now - lastConfidentTimestamp
+                if (timeSinceConfident >= noConfidentClearMs) {
+                    Log.d(TAG, "No confident for ${timeSinceConfident}ms >= threshold -> clearing userLocation")
+                    _userLocation.value = null
+                    lastEmittedSlot = null
+                } else {
+                    Log.d(TAG, "No confident yet but within grace period (${timeSinceConfident}ms)")
+                }
+            }
         }
 
         Log.d(TAG, "🧩 Fingerprint aliases: ${fingerprint.flatMap { it.value.keys }}")
