@@ -139,7 +139,7 @@ fun HomePage(
                         Text("Loading...")
                     } else {
                         InfoCard(
-                            title = "Slot Parkir Miniatur FT",
+                            title = "Slot Parkir Prototype (DTETI)",
                             totalSlots = stats!!.total,
                             usedSlots = stats!!.occupied
                         )
@@ -230,21 +230,33 @@ private fun VerticalDivider() {
 
 @Composable
 private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: Int) {
+    val colors = MaterialTheme.colorScheme
+
     Card(
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.fillMaxWidth()) {
+
+            // HEADER
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFECECEC))
+                    .background(colors.surfaceVariant) // ikut tema
                     .padding(vertical = 10.dp, horizontal = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Kode", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("Lokasi/Departemen", fontWeight = FontWeight.Bold, modifier = Modifier.weight(2f))
+                Text(
+                    "Kode",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "Lokasi/Departemen",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(2f)
+                )
                 Text(
                     "Sisa Slot",
                     fontWeight = FontWeight.Bold,
@@ -252,26 +264,30 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: Int) {
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            // BARIS PROTOTYPE
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .border(0.5.dp, Color.LightGray)
+                    .border(0.5.dp, colors.outlineVariant) // garis juga ikut tema
                     .padding(vertical = 10.dp, horizontal = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("P0", modifier = Modifier.weight(1f))
-                Text("Miniatur", modifier = Modifier.weight(2f))
+                Text("Prototype (DTETI)", modifier = Modifier.weight(2f))
                 Text(
                     text = miniatureStatus.toString(),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            // BARIS LAIN
             rows.forEach { p ->
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .border(0.5.dp, Color.LightGray)
+                        .border(0.5.dp, colors.outlineVariant)
                         .padding(vertical = 10.dp, horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -287,6 +303,7 @@ private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: Int) {
         }
     }
 }
+
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
 private fun PreviewHomePage() {

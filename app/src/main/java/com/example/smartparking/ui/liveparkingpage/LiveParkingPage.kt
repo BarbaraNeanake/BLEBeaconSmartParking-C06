@@ -57,18 +57,23 @@ fun LiveParkingPage(
     val error by vm.error.collectAsStateWithLifecycle()
     val statusById by vm.statusById.collectAsStateWithLifecycle()
 
-    val detectedSlot by beaconVM.detectedSlot.collectAsStateWithLifecycle()
+    val detectedSlot by beaconVM.userLocation.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         beaconVM.startScan()
         onDispose { beaconVM.stopScan() }
     }
 
+//    LaunchedEffect(detectedSlot) {
+//        if (!detectedSlot.equals("Belum terdeteksi", ignoreCase = true)) {
+//            vm.applyBeaconDetection(detectedSlot, currentUserId)
+//        }
+//    }
+
     LaunchedEffect(detectedSlot) {
-        if (!detectedSlot.equals("Belum terdeteksi", ignoreCase = true)) {
-            vm.applyBeaconDetection(detectedSlot, currentUserId)
-        }
+        vm.applyBeaconDetection(detectedSlot, currentUserId)
     }
+
 
     val baseLot = remember { sampleLot(R.drawable.liveparkingmap) }
 
@@ -142,10 +147,10 @@ fun LiveParkingPage(
                 }
                 else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
             }
-//
-//            DeveloperBar(
-//                onPick = { id -> vm.forceOccupySlotForDebug(id) }
-//            )
+
+            DeveloperBar(
+                onPick = { id -> vm.forceOccupySlotForDebug(id) }
+            )
         }
     }
 }
@@ -164,7 +169,13 @@ private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(lot.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+                Text(
+                    text = lot.name,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
                 AssistChip(onClick = {}, label = { Text("${lot.free} kosong • ${lot.used} terpakai") })
             }
 
@@ -230,7 +241,7 @@ private fun sampleLot(@DrawableRes mapRes: Int): Lot {
     val used = slots.count { it.occupied }
     val free = slots.size - used
     return Lot(
-        name = "Departemen",
+        name = "Prototype (DTETI)",
         imageRes = mapRes,
         free = free,
         used = used,

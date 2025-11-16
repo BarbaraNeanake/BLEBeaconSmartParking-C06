@@ -33,6 +33,10 @@ class EditPassViewModel(
     fun toggleShowNew() = _ui.update { it.copy(showNew = !it.showNew) }
     fun toggleShowConfirm() = _ui.update { it.copy(showConfirm = !it.showConfirm) }
 
+    fun resetState() {
+        _ui.value = EditPassUiState()
+    }
+
     fun submitReset() {
         val s = _ui.value
         when {
@@ -41,6 +45,10 @@ class EditPassViewModel(
 
             s.newPassword.length < 6 ->
                 _ui.update { it.copy(errorMessage = "Password minimal 6 karakter.") }
+
+            // 🔥 Tambahkan validasi huruf + angka di sini
+            !s.newPassword.matches(Regex("^(?=.*[A-Za-z])(?=.*\\d).+$")) ->
+                _ui.update { it.copy(errorMessage = "Password harus mengandung huruf dan angka.") }
 
             s.newPassword != s.confirmPassword ->
                 _ui.update { it.copy(errorMessage = "Konfirmasi password tidak sama.") }
@@ -55,9 +63,9 @@ class EditPassViewModel(
                         val err = result.exceptionOrNull()?.message ?: "Gagal update password"
                         _ui.update { it.copy(loading = false, errorMessage = err) }
                     }
-
                 }
             }
         }
     }
+
 }

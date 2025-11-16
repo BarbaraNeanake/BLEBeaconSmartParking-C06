@@ -35,6 +35,10 @@ fun EditPassPage(
 ) {
     val ui by vm.uiState.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) {
+        vm.resetState()
+    }
+
     LaunchedEffect(ui.success) {
         if (ui.success) onBackToLogin()
     }

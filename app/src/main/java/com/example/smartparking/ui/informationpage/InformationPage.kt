@@ -104,7 +104,6 @@ fun InformationPage() {
                     sticker = R.drawable.info2,
                     stickerSide = StickerSide.START,
                     stickerAlpha = 0.85f,
-                    // Tambah padding agar teks tidak menempel stiker & tepi kartu
                     innerPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                     extraContentPadding = PaddingValues(start = 74.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
                     stickerSize = 56.dp
@@ -190,7 +189,7 @@ private fun ForegroundStickerCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         elevation = CardDefaults.cardElevation(6.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f))
+        colors = CardDefaults.cardColors(containerColor = Color.White),
     ) {
         Box(
             modifier = Modifier

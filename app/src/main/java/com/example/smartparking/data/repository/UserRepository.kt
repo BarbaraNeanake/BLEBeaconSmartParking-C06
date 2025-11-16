@@ -7,6 +7,7 @@ import com.example.smartparking.data.remote.LoginRequest
 import com.example.smartparking.data.remote.RetrofitProvider
 import com.example.smartparking.data.remote.UpdatePasswordRequest
 import com.example.smartparking.data.repository.dao.SessionDao
+import org.json.JSONObject
 import retrofit2.Response
 
 class UserRepository(
@@ -26,13 +27,24 @@ class UserRepository(
 
     suspend fun login(email: String, password: String): Result<Unit> = runCatching {
         val response = RetrofitProvider.userApi.login(LoginRequest(email, password))
-        if (!response.isSuccessful || response.body() == null) {
-            throw Exception("Login gagal: ${response.code()} ${response.message()}")
+
+        // Jika error, baca message dari backend
+        if (!response.isSuccessful) {
+            val errorText = response.errorBody()?.string()
+
+            val message = try {
+                // ambil "message" dari JSON error backend
+                JSONObject(errorText).getString("message")
+            } catch (e: Exception) {
+                "Login gagal"
+            }
+
+            throw Exception(message)
         }
 
-        val resp = response.body()!!
-        val u = resp.user
+        val resp = response.body() ?: throw Exception("Response kosong dari server")
 
+        val u = resp.user
         if (u.userId == null) {
             throw Exception("Login gagal: userId dari server kosong")
         }
@@ -45,7 +57,7 @@ class UserRepository(
             role = u.roles
         )
 
-        sessionDao.upsert(session)   // ✅ sekarang pakai instance
+        sessionDao.upsert(session)
     }
 
     suspend fun updatePassword(email: String, newPassword: String): Result<String> = runCatching {
