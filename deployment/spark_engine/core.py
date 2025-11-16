@@ -58,8 +58,16 @@ class SPARKEngine:
     
     def _load_config(self, config_path: str):
         """Load model configuration from JSON"""
-        with open(config_path, 'r') as f:
-            config = json.load(f)
+        try:
+            with open(config_path, 'r') as f:
+                content = f.read()
+                # Remove trailing commas before closing braces/brackets (common JSON error)
+                content = content.replace(',}', '}').replace(',]', ']')
+                config = json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"✗ JSON parsing error in {config_path}: {e}")
+            print(f"  Error at line {e.lineno}, column {e.colno}")
+            raise
         
         self.num_classes = config.get("num_classes", 1)
         self.conf_threshold = config.get("conf_threshold", 0.5)

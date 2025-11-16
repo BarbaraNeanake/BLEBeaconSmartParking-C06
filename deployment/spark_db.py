@@ -141,7 +141,7 @@ class DatabaseManager:
             
             # Query slot status
             cursor.execute(
-                "SELECT nomor, status, userid FROM parking_slots WHERE nomor = %s",
+                "SELECT nomor, status, userid FROM parking WHERE nomor = %s",
                 (slot_id,)
             )
             row = cursor.fetchone()
