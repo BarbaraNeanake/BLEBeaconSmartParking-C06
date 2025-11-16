@@ -15,7 +15,8 @@ class SPARKEngine:
     """YOLOv2 inference engine"""
     
     def __init__(self, model_path: str, config_path: str, 
-                 input_size: int = 416, backend: str = "resnet34"):
+                 input_size: int = 416, backend: str = "resnet34",
+                 anchor_path: str = "anchors.npy"):
         """
         Initialize inference engine
         
@@ -24,6 +25,7 @@ class SPARKEngine:
             config_path: Path to configuration JSON
             input_size: Input image size (default 416)
             backend: Backbone architecture (resnet34 only)
+            anchor_path: Path to anchor file (.npy format, default "anchors.npy")
         """
         self.input_size = input_size
         self.num_classes = 1
@@ -34,6 +36,9 @@ class SPARKEngine:
         
         # Load configuration
         self._load_config(config_path)
+        
+        # Load anchors from .npy file
+        self._load_anchors(anchor_path)
         
         # Create model
         if backend == "resnet34":
@@ -61,8 +66,19 @@ class SPARKEngine:
         self.nms_threshold = config.get("nms_threshold", 0.4)
         self.class_names = config.get("class_names", [f"class_{i}" for i in range(self.num_classes)])
         
-        if "anchors" in config:
-            self.anchors = np.array(config["anchors"], dtype=np.float32)
+        # Note: anchors are now loaded from .npy file instead of config
+    
+    def _load_anchors(self, anchor_path: str):
+        """Load anchors from .npy file"""
+        try:
+            self.anchors = np.load(anchor_path)
+            print(f"✓ Successfully loaded {len(self.anchors)} anchors from {anchor_path}")
+            print(f"  Anchor shape: {self.anchors.shape}")
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Anchor file not found: {anchor_path}")
+        except Exception as e:
+            print(f"✗ Failed to load anchors: {e}")
+            raise
     
     def _load_weights(self, model_path: str):
         """
