@@ -414,26 +414,14 @@ async def get_parking_status(request: ParkingStatusRequest):
     for slot_id in slot_ids:
         slot_status = await db_manager.get_slot_status(slot_id)
         
-        if slot_status is None:
-            not_found.append(slot_id)
-        else:
+        if slot_status is not None:
             results.append({
                 "slot_id": slot_status["nomor"],
                 "status": slot_status["status"],
-                "is_occupied": slot_status["status"] == "occupied",
                 "userid": slot_status["userid"]
             })
     
-    response = {
-        "total_requested": len(slot_ids),
-        "total_found": len(results),
-        "slots": results
-    }
-    
-    if not_found:
-        response["not_found"] = not_found
-    
-    return response
+    return results
 
 @app.post("/pelanggaran")
 async def trigger_buzzer(sensor_payload: AlarmPayload):
