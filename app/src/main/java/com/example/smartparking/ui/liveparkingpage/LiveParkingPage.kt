@@ -145,7 +145,11 @@ fun LiveParkingPage(
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = vm::reload, shape = RoundedCornerShape(12.dp)) { Text("Coba Lagi") }
                 }
-                else -> LotCard(lot = coloredLot, onRefresh = vm::reload)
+                else -> {
+                    LotCard(lot = coloredLot, onRefresh = vm::reload)
+                    Spacer(Modifier.height(12.dp))
+                    NewImageCard()
+                }
             }
 
             DeveloperBar(
@@ -247,6 +251,23 @@ private fun sampleLot(@DrawableRes mapRes: Int): Lot {
         used = used,
         slots = slots
     )
+}
+@Composable
+private fun NewImageCard() {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.notes_liveparkingpage),
+            contentDescription = "Live Parking Notes",
+            modifier = Modifier.fillMaxWidth()
+                .padding(30.dp),
+            contentScale = ContentScale.Crop
+            )
+        }
 }
 
 @Composable
