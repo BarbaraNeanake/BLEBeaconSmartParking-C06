@@ -283,18 +283,18 @@ class SPARKEngine:
         }
 
 
-def create_engine(model_path: str, config_path: str, 
-                           input_size: int = 416, anchor_path: str, backend: str = "resnet34") -> SPARKEngine:
+def create_engine(model_path: str, config_path: str, anchor_path: str, input_size: int = 416, backend: str = "resnet34") -> SPARKEngine:
     """
     Factory function to create inference engine
     
     Args:
         model_path: Path to trained model weights (.pth file)
         config_path: Path to configuration JSON
+        anchor_path: Path to anchor file (.npy format)
         input_size: Input image size (default 416)
         backend: Model backbone (resnet34 only)
     
     Returns:
         SPARKEngine instance
     """
-    return SPARKEngine(model_path, config_path, input_size, anchor_path, backend)
+    return SPARKEngine(model_path, config_path, input_size, backend, anchor_path)
