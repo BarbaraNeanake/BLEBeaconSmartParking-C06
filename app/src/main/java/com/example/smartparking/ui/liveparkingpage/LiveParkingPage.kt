@@ -1,6 +1,7 @@
 package com.example.smartparking.ui.liveparkingpage
 
-import android.content.res.Configuration
+import android.util.Log
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -9,133 +10,317 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.smartparking.R
+import com.example.smartparking.ui.beacontest.BeaconViewModel
 import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
-import com.example.smartparking.ui.theme.SmartParkingTheme
+import kotlin.math.roundToInt
+
+data class Slot(
+    val id: String,
+    val xPct: Float,
+    val yPct: Float,
+    val wPct: Float,
+    val hPct: Float,
+    val accessible: Boolean = false,
+    val occupied: Boolean = false
+)
+
+data class Lot(
+    val name: String,
+    @DrawableRes val imageRes: Int,
+    val free: Int,
+    val used: Int,
+    val slots: List<Slot>
+)
 
 @Composable
-fun LiveParkingPage(vm: LiveParkingViewModel = viewModel()) {
-    val state by vm.ui.collectAsStateWithLifecycle()
+fun LiveParkingPage(
+    vm: LiveParkingViewModel = viewModel(),
+    beaconVM: BeaconViewModel = viewModel(),
+    currentUserId: Int? = null
+) {
+    val loading by vm.loading.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    val statusById by vm.statusById.collectAsStateWithLifecycle()
 
-    val bg = remember {
-        Brush.verticalGradient(listOf(GradientTop.copy(0.95f), Color.White, GradientBottom.copy(0.95f)))
+    val detectedSlot by beaconVM.userLocation.collectAsStateWithLifecycle()
+
+    DisposableEffect(Unit) {
+        beaconVM.startScan()
+        onDispose { beaconVM.stopScan() }
     }
 
-    Column(
+//    LaunchedEffect(detectedSlot) {
+//        if (!detectedSlot.equals("Belum terdeteksi", ignoreCase = true)) {
+//            vm.applyBeaconDetection(detectedSlot, currentUserId)
+//        }
+//    }
+
+    LaunchedEffect(detectedSlot) {
+        vm.applyBeaconDetection(detectedSlot, currentUserId)
+    }
+
+
+    val baseLot = remember { sampleLot(R.drawable.liveparkingmap) }
+
+    val coloredLot = remember(baseLot, statusById) {
+        val updatedSlots = baseLot.slots.map { s ->
+            val status = statusById[s.id]?.lowercase()
+            val isOcc = status == "occupied"
+            val isAcc = status == "disabled_slot"
+            s.copy(occupied = isOcc, accessible = isAcc)
+        }
+        val used = updatedSlots.count { it.occupied }
+        val free = updatedSlots.size - used
+        baseLot.copy(slots = updatedSlots, used = used, free = free)
+    }
+
+    val bg = remember {
+        Brush.verticalGradient(
+            listOf(
+                GradientTop.copy(alpha = 0.9f),
+                Color.White,
+                GradientBottom.copy(alpha = 0.9f)
+            )
+        )
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
+            .systemBarsPadding()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentAlignment = Alignment.TopCenter
     ) {
-        Text(
-            "Live Parking Map\nKantong Parkir Roda 4\nFakultas Teknik UGM",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom=10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ugm_logo),
+                contentDescription = "UGM Logo",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(80.dp)
+            )
+            Spacer(Modifier.height(12.dp))
 
-        if (state.loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+            Text(
+                text = "Live Parking",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp
+                ),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = "Kantong Parkir Fakultas Teknik UGM",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(14.dp))
+
+            when {
+                loading -> CircularProgressIndicator()
+                error != null -> {
+                    Text(text = error ?: "-", color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = vm::reload, shape = RoundedCornerShape(12.dp)) { Text("Coba Lagi") }
+                }
+                else -> {
+                    LotCard(lot = coloredLot, onRefresh = vm::reload)
+                    Spacer(Modifier.height(12.dp))
+                    NewImageCard()
+                }
             }
-        } else if (state.error != null) {
-            Text("Error: ${state.error}", color = MaterialTheme.colorScheme.error)
-        } else {
-            state.lots.forEachIndexed { index, lot ->
-                LotCard(index + 1, lot)
-            }
+
+            DeveloperBar(
+                onPick = { id -> vm.forceOccupySlotForDebug(id) }
+            )
         }
     }
 }
 
 @Composable
-private fun LotCard(index: Int, lot: Lot) {
+private fun LotCard(lot: Lot, onRefresh: () -> Unit) {
     Card(
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("$index. ${lot.name}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = lot.name,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+                AssistChip(onClick = {}, label = { Text("${lot.free} kosong • ${lot.used} terpakai") })
+            }
 
-            // Gambar peta + overlay slot relatif
+            Spacer(Modifier.height(10.dp))
+
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp)
+                    .height(240.dp)
+                    .clip(RoundedCornerShape(12.dp))
             ) {
-                val boxW = maxWidth
-                val boxH = maxHeight
+                val density = LocalDensity.current
+                val boxWidthPx = with(density) { maxWidth.toPx() }
+                val boxHeightPx = with(density) { maxHeight.toPx() }
+
                 Image(
-                    painter = painterResource(id = lot.imageRes),
+                    painter = painterResource(lot.imageRes),
                     contentDescription = lot.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.FillBounds
                 )
 
-                lot.slots.forEach { slot ->
-                    val x = (boxW.value * slot.xPct).dp
-                    val y = (boxH.value * slot.yPct).dp
-                    val w = (boxW.value * slot.wPct).dp
-                    val h = (boxH.value * slot.hPct).dp
-                    val color = if (slot.occupied) Color(0xFFD93636) else Color(0xFF18B46E)
+                lot.slots.forEach { s ->
+                    val xPx = (boxWidthPx * s.xPct).coerceIn(0f, boxWidthPx - (boxWidthPx * s.wPct))
+                    val yPx = (boxHeightPx * s.yPct).coerceIn(0f, boxHeightPx - (boxHeightPx * s.hPct))
+                    val wDp = with(density) { (boxWidthPx * s.wPct).toDp() }
+                    val hDp = with(density) { (boxHeightPx * s.hPct).toDp() }
+
+                    val baseColor = when {
+                        s.accessible -> Color(0xFF2F65F5)
+                        s.occupied -> Color(0xFFD93636)
+                        else -> Color(0xFF18B46E)
+                    }
 
                     Box(
                         modifier = Modifier
-                            .offset(x, y)
-                            .size(w, h)
-                            .background(color, RoundedCornerShape(5.dp)),
+                            .absoluteOffset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+                            .size(width = wDp, height = hDp)
+                            .background(baseColor.copy(alpha = 0.85f), RoundedCornerShape(6.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(slot.id, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        Text(text = s.id, style = MaterialTheme.typography.labelMedium, color = Color.White)
                     }
                 }
             }
 
-            // Ringkasan tersedia/terpakai
-            SummaryRow(free = lot.free, used = lot.used)
-        }
-    }
-}
-
-@Composable
-private fun SummaryRow(free: Int, used: Int) {
-    Card(shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth()) {
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Tempat Tersedia", fontWeight = FontWeight.SemiBold)
-                Text("$free", style = MaterialTheme.typography.titleMedium)
-            }
-            Divider(Modifier.width(1.dp).height(48.dp))
-            Column(
-                Modifier
-                    .weight(1f)
-                    .padding(12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text("Parkir Terpakai", fontWeight = FontWeight.SemiBold)
-                Text("$used", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onRefresh, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Refresh")
             }
         }
     }
 }
 
-@Preview(uiMode = Configuration.UI_MODE_NIGHT_NO, showBackground = true)
-@Composable
-private fun PreviewLiveParking() {
-    SmartParkingTheme { LiveParkingPage() }
+private fun sampleLot(@DrawableRes mapRes: Int): Lot {
+    val slots = listOf(
+        Slot("S1", 0.14f, 0.50f, 0.10f, 0.33f),
+        Slot("S2", 0.30f, 0.50f, 0.10f, 0.33f),
+        Slot("S3", 0.45f, 0.50f, 0.10f, 0.33f),
+        Slot("S4", 0.61f, 0.50f, 0.10f, 0.33f),
+        Slot("S5", 0.76f, 0.50f, 0.10f, 0.33f)
+    )
+    val used = slots.count { it.occupied }
+    val free = slots.size - used
+    return Lot(
+        name = "Prototype (DTETI)",
+        imageRes = mapRes,
+        free = free,
+        used = used,
+        slots = slots
+    )
 }
+@Composable
+private fun NewImageCard() {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.notes_liveparkingpage),
+            contentDescription = "Live Parking Notes",
+            modifier = Modifier.fillMaxWidth()
+                .padding(30.dp),
+            contentScale = ContentScale.Crop
+            )
+        }
+}
+
+@Composable
+private fun DeveloperBar(
+    onPick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var lastAction by remember { mutableStateOf("Belum ada aksi") }
+    var lastColor by remember { mutableStateOf(Color.Gray) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+            .background(Color(0xFFEFF1F5), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "🧪 Developer Debug Panel",
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            listOf("Gate_In", "S1", "S2", "S3", "S4", "S5", "Gate_Out").forEach { id ->
+                Button(
+                    onClick = {
+                        onPick(id)
+                        lastAction = "Aksi: $id dikirim"
+                        lastColor = Color(0xFF2196F3)
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(id, fontSize = 12.sp)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        Text(
+            text = lastAction,
+            color = lastColor,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+        )
+    }
+}
+
+

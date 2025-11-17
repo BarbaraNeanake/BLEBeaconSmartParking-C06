@@ -2,6 +2,8 @@ package com.example.smartparking.ui.signuppage
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.smartparking.data.model.User
+import com.example.smartparking.data.repository.UserRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,8 +14,6 @@ data class SignUpUiState(
     val name: String = "",
     val email: String = "",
     val licensePlate: String = "",
-    val countryCode: String = "+62",
-    val phoneNumber: String = "",
     val password: String = "",
     val confirmPassword: String = "",
     val showPassword: Boolean = false,
@@ -22,31 +22,45 @@ data class SignUpUiState(
     val error: String? = null,
     val registered: Boolean = false,
     val canSubmit: Boolean = false
-) {
-    val phoneE164: String get() = countryCode + phoneNumber.filter { it.isDigit() }
-}
+)
 
-class SignUpViewModel : ViewModel() {
+class SignUpViewModel(
+    private val repo: UserRepository
+) : ViewModel() {
 
     private val _ui = MutableStateFlow(SignUpUiState())
     val ui = _ui.asStateFlow()
 
-    /* ----------------- Input handlers ----------------- */
+
+
     fun onName(v: String) = _ui.update {
-        it.copy(name = v, error = null, canSubmit = canSubmit(v, it.email, it.licensePlate, it.password, it.confirmPassword))
+        it.copy(
+            name = v,
+            error = null,
+            canSubmit = canSubmit(
+                v,
+                it.email,
+                it.licensePlate,
+                it.password,
+                it.confirmPassword)
+        )
     }
 
     fun onEmail(v: String) = _ui.update {
-        it.copy(email = v.trim(), error = null, canSubmit = canSubmit(it.name, v.trim(), it.licensePlate, it.password, it.confirmPassword))
+        it.copy(
+            email = v.trim(),
+            error = null,
+            canSubmit = canSubmit(
+                it.name,
+                v.trim(),
+                it.licensePlate,
+                it.password,
+                it.confirmPassword))
     }
 
     fun onLicensePlate(v: String) = _ui.update {
         it.copy(licensePlate = v.uppercase(), error = null, canSubmit = canSubmit(it.name, it.email, v.uppercase(), it.password, it.confirmPassword))
     }
-
-    fun onCountryCode(v: String) = _ui.update { it.copy(countryCode = v, error = null) }
-
-    fun onPhone(v: String) = _ui.update { it.copy(phoneNumber = v, error = null) }
 
     fun onPassword(v: String) = _ui.update {
         it.copy(password = v, error = null, canSubmit = canSubmit(it.name, it.email, it.licensePlate, v, it.confirmPassword))
@@ -65,7 +79,6 @@ class SignUpViewModel : ViewModel() {
         val s = _ui.value
         if (s.loading) return@launch
 
-        // Validasi FE
         if (s.name.isBlank()) { fail("Nama wajib diisi"); return@launch }
         if (!isValidEmail(s.email)) { fail("Email tidak valid"); return@launch }
         if (!isValidPlate(s.licensePlate)) { fail("Plat mobil tidak valid"); return@launch }
@@ -74,14 +87,30 @@ class SignUpViewModel : ViewModel() {
 
         _ui.update { it.copy(loading = true, error = null) }
 
-        // TODO: sambungkan ke repository-mu di sini (simulasi dulu)
-        delay(900)
+        val newUser = User(
+            nama = s.name.trim(),
+            email = s.email.trim(),
+            license = s.licensePlate.trim(),
+            password = s.password.trim(),
+            roles = "Mahasiswa"
+        )
 
-        _ui.update { it.copy(loading = false, registered = true) }
+        val resp = repo.createUser(newUser)
+
+        if (resp.isSuccessful) {
+            _ui.update { it.copy(loading = false, registered = true) }
+        } else {
+            val msg = when (resp.code()) {
+                409 -> "Email sudah digunakan"
+                else -> "Gagal register: ${resp.code()} ${resp.message()}"
+            }
+            _ui.update { it.copy(loading = false, error = msg, registered = false) }
+        }
     }
 
+
     /* ----------------- Helpers ----------------- */
-    private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\$")
+    private val EMAIL_REGEX = Regex("^[A-Za-z0-9._%+-]+@mail\\.ugm\\.ac\\.id$")
     private fun isValidEmail(s: String) = EMAIL_REGEX.matches(s)
 
     // Validasi sederhana plat mobil (huruf/angka/spasi/tanda minus), minimal 5 char

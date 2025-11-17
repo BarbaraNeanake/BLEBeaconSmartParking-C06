@@ -1,126 +1,274 @@
 package com.example.smartparking.ui.historypage
 
-import android.content.res.Configuration
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.smartparking.R
+import com.example.smartparking.data.repository.LogActivityRepository
+import com.example.smartparking.data.repository.dao.SessionDao
 import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
-import com.example.smartparking.ui.theme.SmartParkingTheme
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
-fun HistoryPage(vm: HistoryViewModel = viewModel()) {
-    val state by vm.ui.collectAsStateWithLifecycle()
+fun HistoryPage(
+    logRepository: LogActivityRepository,
+    sessionDao: SessionDao
+) {
+    val vm: HistoryViewModel = viewModel(
+        factory = HistoryViewModelFactory(logRepository, sessionDao)
+    )
+    val ui by vm.ui.collectAsState()
+    HistoryContent(ui, onRetry = { vm.retry() })
+}
 
-    val bg = remember {
-        Brush.verticalGradient(
-            listOf(GradientTop.copy(0.9f), Color.White, GradientBottom.copy(0.9f))
-        )
-    }
+@Composable
+private fun HistoryContent(
+    ui: HistoryUiState,
+    onRetry: () -> Unit
+) {
+    val bg = Brush.verticalGradient(
+        listOf(GradientTop.copy(alpha = 0.92f), Color.White, GradientBottom.copy(alpha = 0.92f))
+    )
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
+            .systemBarsPadding()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        Text(
-            "Histori Parkir\ndi Fakultas Teknik UGM",
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp
-            ),
-            modifier = Modifier.align(Alignment.CenterHorizontally)
-        )
-
-        if (state.loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (state.error != null) {
-            Text("Error: ${state.error}", color = MaterialTheme.colorScheme.error)
-        } else {
-            Card(
+        item {
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(4.dp)
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(
-                        "Histori Parkir Mobil ${state.name}",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                        modifier = Modifier.padding(bottom = 8.dp)
+                Image(
+                    painter = painterResource(R.drawable.ugm_logo),
+                    contentDescription = "UGM Logo",
+                    modifier = Modifier.size(80.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Riwayat Aktivitas Parkir\nFakultas Teknik UGM",
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp
                     )
-                    Divider()
-
-                    // header
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Tanggal", fontWeight = FontWeight.SemiBold)
-                        Text("Waktu", fontWeight = FontWeight.SemiBold)
-                        Text("Lokasi Parkir", fontWeight = FontWeight.SemiBold)
-                    }
-                    Divider()
-
-                    LazyColumn(
+                )
+            }
+        }
+        when {
+            ui.loading -> {
+                item {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 320.dp),
-                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                            .padding(vertical = 80.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        items(state.items) { item ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(item.date)
-                                Text(item.time)
-                                Text(item.location)
-                            }
-                            Divider()
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+            ui.error != null -> {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 50.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Error: ${ui.error}",
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = onRetry) {
+                            Text("Coba Lagi")
                         }
                     }
                 }
             }
+            else -> {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(6.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 14.dp, horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Histori Parkir • ${ui.name}",
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            )
+                        }
+                    }
+                }
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(6.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp, horizontal = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Tanggal", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1.2f))
+                                Text("Lokasi", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(0.8f))
+                                Text("Status", fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1.0f))
+                            }
+                            Divider()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 120.dp, max = 340.dp)
+                                    .padding(horizontal = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
 
-            // ilustrasi di bawah (opsional)
-            Image(
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .size(120.dp)
-            )
+                                if (ui.items.isEmpty()) {
+                                    // 🟦 Tampilkan tulisan "Tidak ada log"
+                                    Text(
+                                        text = "Tidak ada log",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.Gray
+                                        ),
+                                        modifier = Modifier.padding(vertical = 20.dp)
+                                    )
+                                } else {
+                                    // 🟩 Tampilkan list item seperti biasa
+                                    ui.items.forEach { log ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            val (date, timePart) = extractDateTimeParts(log.time)
+                                            Column(
+                                                modifier = Modifier.weight(1.2f),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(date, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                                Text(timePart, style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray))
+                                            }
+                                            Text(log.area ?: "-", textAlign = TextAlign.Center, modifier = Modifier.weight(0.8f))
+                                            val color = when (log.status?.lowercase()) {
+                                                "masuk" -> Color(0xFF4CAF50)
+                                                "keluar" -> Color(0xFFF44336)
+                                                else -> Color.Gray
+                                            }
+                                            Text(
+                                                log.status?.uppercase() ?: "-",
+                                                textAlign = TextAlign.Center,
+                                                color = color,
+                                                modifier = Modifier.weight(1.0f)
+                                            )
+                                        }
+                                        Divider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.icon_historypage),
+                            contentDescription = null,
+                            modifier = Modifier.size(200.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
-@Composable
-private fun PreviewHistoryLight() {
-    SmartParkingTheme { HistoryPage() }
+
+//private fun formatTime(time: Any?): String {
+//    if (time == null) return "-"
+//    return try {
+//        val raw = time.toString().replace("T", " ")
+//        val cleaned = raw.split(".").firstOrNull() ?: raw
+//
+//        val parsed = LocalDateTime.parse(cleaned, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+//        val wibTime = parsed.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of("Asia/Jakarta"))
+//        wibTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+//    } catch (e: Exception) {
+//        time.toString().split(".").firstOrNull() ?: time.toString()
+//    }
+//}
+
+private fun extractDateTimeParts(time: Any?): Pair<String, String> {
+    if (time == null) return "-" to "-"
+
+    return try {
+        val raw = time.toString().replace("T", " ")
+        val cleaned = raw.split(".").first()
+
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        val parsed = LocalDateTime.parse(cleaned, formatter)
+
+        val date = parsed.toLocalDate().toString()
+        val timePart = parsed.toLocalTime().toString()
+
+        date to timePart
+    } catch (e: Exception) {
+        // fallback jika parsing gagal
+        val fallback = time.toString().replace("T", " ")
+        val parts = fallback.split(" ")
+        if (parts.size == 2) parts[0] to parts[1]
+        else fallback to "-"
+    }
 }
+
+

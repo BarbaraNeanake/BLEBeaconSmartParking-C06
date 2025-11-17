@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,8 +29,8 @@ import com.example.smartparking.R
 import com.example.smartparking.ui.theme.GradientBottom
 import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
+import kotlinx.coroutines.delay
 
-// ---------- Data tabel ----------
 data class ParkingLocation(
     val id: String,
     val location: String,
@@ -55,14 +56,28 @@ private val parkingLocations: List<ParkingLocation> = listOf(
     ParkingLocation("P16", "Satu Bumi", 0)
 )
 
-// ---------- UI ----------
 @Composable
-fun HomePage(vm: HomePageViewModel = viewModel()) {
-    // ambil state dari VM (delegate perlu import getValue)
-    val parkingStatus by vm.parkingStatus
-    LaunchedEffect(Unit) { vm.fetchParkingStatus() }
+fun HomePage(
+    vm: HomePageViewModel = viewModel()
+) {
+    val parkingStatus by vm.parkingStatus.collectAsState()
+    val miniatureStatus by vm.miniatureStatus.collectAsState()
+    val stats by vm.stats.collectAsState()
 
-    // background gradasi
+    LaunchedEffect(Unit) {
+        vm.fetchParkingStatus()
+        vm.fetchMiniatureStatus()
+        while (true) {
+            delay(10_000L)
+            vm.fetchParkingStatus()
+            vm.fetchMiniatureStatus()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.loadStats()
+    }
+
     val bg = remember {
         Brush.verticalGradient(
             listOf(
@@ -73,23 +88,29 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
         )
     }
 
+    val listState = rememberLazyListState()
+
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
+            .systemBarsPadding()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
     ) {
-        // Header
         item {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
+                    .padding(bottom = 10.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ugm_logo),
                     contentDescription = "UGM Logo",
-                    modifier = Modifier.size(80.dp)
+                    modifier = Modifier.size(80.dp),
+                    contentScale = ContentScale.Fit
                 )
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -108,17 +129,29 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
                 )
             }
         }
-
-        // Info slot
         item {
-            InfoCard(
-                title = "Slot Parkir Mobil di FT Saat Ini",
-                totalSlots = parkingStatus.totalSlots,
-                usedSlots = parkingStatus.usedSlots
-            )
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (stats == null) {
+                        Text("Loading...")
+                    } else {
+                        InfoCard(
+                            title = "Slot Parkir Prototype (DTETI)",
+                            totalSlots = stats!!.total,
+                            usedSlots = stats!!.occupied
+                        )
+                    }
+                    InfoCard(
+                        title = "Slot Parkir Mobil di FT Saat Ini",
+                        totalSlots = miniatureStatus.totalSlots,
+                        usedSlots = miniatureStatus.usedSlots
+                    )
+                }
+            }
         }
-
-        // Peta
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
@@ -131,14 +164,16 @@ fun HomePage(vm: HomePageViewModel = viewModel()) {
                     contentScale = ContentScale.FillBounds,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(220.dp)
+                        .height(280.dp)
                 )
             }
         }
-
-        // Tabel kapasitas
         item {
-            ParkingTable(parkingLocations)
+            if (stats == null) {
+                Text("Loading...")
+            } else{
+            ParkingTable(rows = parkingLocations, miniatureStatus = stats!!.available)
+            }
         }
     }
 }
@@ -194,31 +229,65 @@ private fun VerticalDivider() {
 }
 
 @Composable
-private fun ParkingTable(rows: List<ParkingLocation>) {
+private fun ParkingTable(rows: List<ParkingLocation>, miniatureStatus: Int) {
+    val colors = MaterialTheme.colorScheme
+
     Card(
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(4.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.fillMaxWidth()) {
-            // header
+
+            // HEADER
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFECECEC))
+                    .background(colors.surfaceVariant) // ikut tema
                     .padding(vertical = 10.dp, horizontal = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Kode", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("Lokasi/Departemen", fontWeight = FontWeight.Bold, modifier = Modifier.weight(2f))
-                Text("Sisa Slot", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                Text(
+                    "Kode",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "Lokasi/Departemen",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(2f)
+                )
+                Text(
+                    "Sisa Slot",
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
             }
-            // rows
-            rows.forEach { p: ParkingLocation ->
+
+            // BARIS PROTOTYPE
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .border(0.5.dp, colors.outlineVariant) // garis juga ikut tema
+                    .padding(vertical = 10.dp, horizontal = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("P0", modifier = Modifier.weight(1f))
+                Text("Prototype (DTETI)", modifier = Modifier.weight(2f))
+                Text(
+                    text = miniatureStatus.toString(),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // BARIS LAIN
+            rows.forEach { p ->
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .border(0.5.dp, Color.LightGray)
+                        .border(0.5.dp, colors.outlineVariant)
                         .padding(vertical = 10.dp, horizontal = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -235,12 +304,13 @@ private fun ParkingTable(rows: List<ParkingLocation>) {
     }
 }
 
-/* ==================== Preview ==================== */
 @Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO)
 @Composable
 private fun PreviewHomePage() {
-    SmartParkingTheme {
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
         HomePage()
     }
 }
-

@@ -7,7 +7,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -30,15 +32,16 @@ import com.example.smartparking.ui.theme.SmartParkingTheme
 
 @Composable
 fun LoginPage(
-    vm: LoginViewModel = viewModel(),
+    vm: LoginViewModel,
     onLoginSuccess: () -> Unit = {},
     onSignUpClick: () -> Unit = {},
     onForgotPasswordClick: () -> Unit = {}
 ) {
-    val ui by vm.uiState.collectAsStateWithLifecycle()
+    val ui = vm.uiState.collectAsStateWithLifecycle().value
 
     LaunchedEffect(ui.isLoggedIn) {
         if (ui.isLoggedIn) onLoginSuccess()
+
     }
 
     LoginContent(
@@ -53,7 +56,6 @@ fun LoginPage(
     )
 }
 
-/** Pure UI (stateless) → aman untuk Preview. */
 @Composable
 private fun LoginContent(
     ui: LoginUiState,
@@ -65,7 +67,6 @@ private fun LoginContent(
     onSignUpClick: () -> Unit,
     onForgotPasswordClick: () -> Unit
 ) {
-    // background: soft gradient (bukan merah)
     val gradient = remember {
         Brush.verticalGradient(
             listOf(
@@ -82,12 +83,11 @@ private fun LoginContent(
             .background(gradient)
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // ===== Header (logo + SPARK + subtitle), diturunin sedikit =====
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
-                .padding(top = 32.dp),        // turunin posisinya
+                .padding(top = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
@@ -103,7 +103,7 @@ private fun LoginContent(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.ExtraBold
                 ),
-                color = Color(0xFF0A2342),          // navy
+                color = Color(0xFF0A2342),
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(2.dp))
@@ -117,7 +117,6 @@ private fun LoginContent(
             )
         }
 
-        // ===== Card form =====
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -173,22 +172,21 @@ private fun LoginContent(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Checkbox(checked = ui.rememberMe, onCheckedChange = onRememberMeChange)
-                    Text("Remember me")
                     Spacer(Modifier.weight(1f))
                     Text(
                         "Forgot Password ?",
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onForgotPasswordClick() } // → EditPassPage
+                        modifier = Modifier.clickable { onForgotPasswordClick() }
                     )
                 }
 
                 Spacer(Modifier.height(12.dp))
 
-                // Primary action
                 Button(
-                    onClick = onLoginClick,
-                    enabled = !ui.loading,
+                    onClick = {
+                        onLoginClick()
+                              },
+                    enabled = ui.canSubmit && !ui.loading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
@@ -204,7 +202,6 @@ private fun LoginContent(
                     }
                 }
 
-                // Tonjolkan Sign Up (secondary full-width)
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onSignUpClick,
@@ -229,7 +226,6 @@ private fun LoginContent(
     }
 }
 
-/* ======= PREVIEWS ======= */
 @Preview(
     showBackground = true,
     name = "Login – Light",
@@ -237,7 +233,10 @@ private fun LoginContent(
 )
 @Composable
 private fun PreviewLoginLight() {
-    SmartParkingTheme {
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
         LoginContent(
             ui = LoginUiState(
                 email = "barbara@ugm.ac.id",

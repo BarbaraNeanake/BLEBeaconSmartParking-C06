@@ -4,101 +4,128 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExitToApp
-//import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-//import androidx.compose.material.icons.filled.Map
-import androidx.compose.material3.*
+import androidx.compose.material.icons.outlined.Campaign
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.smartparking.R
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.room.Room
+import com.example.smartparking.data.repository.db.AppDatabase
+
 
 data class DrawerItem(
     val label: String,
-    val icon: ImageVector,
-    val route: String
+    val route: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 
 @Composable
 fun DrawerContent(
     selectedRoute: String?,
     onItemClick: (route: String) -> Unit,
-    userName: String = "Barbara Neanake",
-    userEmail: String = "barbaraneanake@ugm.ac.id"
+    userName: String?,
+    userEmail: String?,
+    drawerWidthFraction: Float = 0.78f
 ) {
     val items = listOf(
-        DrawerItem("Home", Icons.Filled.Home, "home"),
-        DrawerItem("Live Parking Map", Icons.Filled.Info, "live_parking"),
-        DrawerItem("History", Icons.Filled.Info, "history"),
-        DrawerItem("Information", Icons.Filled.Info, "information"),
-        DrawerItem("Logout", Icons.Filled.ExitToApp, "logout"),
+        DrawerItem("Home", "home", Icons.Outlined.Home),
+        DrawerItem("Live Parking Map", "live_parking", Icons.Outlined.Map),
+        DrawerItem("History", "history", Icons.Outlined.History),
+        DrawerItem("Information", "information", Icons.Outlined.Info),
+        DrawerItem(label="Pelanggaran", "pelanggaran", Icons.Outlined.Campaign),
+        DrawerItem("Logout", "logout", Icons.Outlined.PowerSettingsNew)
     )
+    
 
     ModalDrawerSheet(
-        drawerContainerColor = MaterialTheme.colorScheme.surface,
-        drawerContentColor = MaterialTheme.colorScheme.onSurface
+        modifier = Modifier.fillMaxWidth(drawerWidthFraction)
     ) {
-        // Header
+        // ===== Header =====
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 24.dp, bottom = 8.dp),
+                .padding(top = 18.dp, bottom = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Image(
                 painter = painterResource(id = R.drawable.ugm_logo),
                 contentDescription = "UGM Logo",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.size(56.dp)
+                modifier = Modifier.size(54.dp)
             )
-            Spacer(Modifier.height(8.dp))
-            Text("Smart Parking", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            Divider()
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "SPARK",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
+            Spacer(Modifier.height(6.dp))
+            HorizontalDivider()
         }
 
-        // Items
+        // ===== Items =====
         items.forEach { item ->
             val selected = selectedRoute == item.route
             NavigationDrawerItem(
                 label = { Text(item.label, fontSize = 16.sp) },
+                icon = { Icon(item.icon, contentDescription = item.label) },
                 selected = selected,
                 onClick = { onItemClick(item.route) },
-                icon = { Icon(item.icon, contentDescription = item.label) },
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                colors = NavigationDrawerItemDefaults.colors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    selectedIconColor = MaterialTheme.colorScheme.primary
+                )
             )
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(modifier = Modifier.weight(1f)) // ini aman karena berada di Column scope
 
-        // Footer / user panel
-        Divider()
+        // ===== Footer (User Panel) =====
+        HorizontalDivider()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // pakai logo bulat sebagai placeholder avatar
             Image(
-                painter = painterResource(id = R.drawable.ugm_logo),
-                contentDescription = "Avatar",
+                painter = painterResource(id = R.drawable.user), // pastikan user.png ada di res/drawable
+                contentDescription = "User Avatar",
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
             )
             Spacer(Modifier.width(10.dp))
             Column {
-                Text(userName, style = MaterialTheme.typography.bodyMedium)
-                Text(userEmail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = userName ?: "Guest", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = userEmail ?: "No email",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

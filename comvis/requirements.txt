@@ -1,0 +1,7 @@
+torch
+torchvision
+pandas==2.2.2
+pillow==10.3.0
+lxml==5.2.2
+scikit-learn==1.5.0
+fiftyone

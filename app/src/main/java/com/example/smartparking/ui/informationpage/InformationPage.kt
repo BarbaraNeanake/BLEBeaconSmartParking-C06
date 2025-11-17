@@ -1,6 +1,7 @@
 package com.example.smartparking.ui.informationpage
 
 import android.content.res.Configuration
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -8,23 +9,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.smartparking.R
@@ -33,9 +38,7 @@ import com.example.smartparking.ui.theme.GradientTop
 import com.example.smartparking.ui.theme.SmartParkingTheme
 
 @Composable
-fun InformationPage(
-    onMenuClick: () -> Unit = {}
-) {
+fun InformationPage() {
     val bg = remember {
         Brush.verticalGradient(
             listOf(
@@ -45,159 +48,171 @@ fun InformationPage(
             )
         )
     }
+    val uri = LocalUriHandler.current
+    val Navy = Color(0xFF0A2342)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bg)
-            .windowInsetsPadding(WindowInsets.systemBars)
+            .systemBarsPadding()
+            .padding(16.dp)
     ) {
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+                .fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 20.dp)
         ) {
-
-            // Header
             item {
-                Row(
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
-                    }
-                    Spacer(Modifier.width(8.dp))
-
-                    val title = buildAnnotatedString {
-                        append("Informasi ")
-                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                            append("Safety Car Riding")
-                        }
-                        append("\n")
-                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                            append("di Fakultas Teknik UGM")
-                        }
-                    }
-
+                    Image(
+                        painter = painterResource(R.drawable.ugm_logo),
+                        contentDescription = "UGM Logo",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(80.dp)
+                    )
+                    Spacer(Modifier.height(10.dp))
                     Text(
-                        text = title,
+                        text = buildAnnotatedString {
+                            append("Informasi ")
+                            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                                append("Safety Car Riding")
+                            }
+                            append("\n")
+                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                                append("di Fakultas Teknik UGM")
+                            }
+                        },
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontSize = 20.sp,
-                            lineHeight = 24.sp
+                            lineHeight = 27.sp,
+                            textAlign = TextAlign.Center
                         ),
-                        modifier = Modifier.weight(1f)
+                        textAlign = TextAlign.Center
                     )
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
 
-                    // decorative sticker on the right (warning sign)
-                    Image(
-                        painter = painterResource(R.drawable.info1),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .size(42.dp)
-                            .padding(start = 6.dp)
+            item {
+                ForegroundStickerCard(
+                    sticker = R.drawable.info2,
+                    stickerSide = StickerSide.START,
+                    stickerAlpha = 0.85f,
+                    innerPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                    extraContentPadding = PaddingValues(start = 74.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+                    stickerSize = 56.dp
+                ) {
+                    Text(
+                        "Dalam mendukung penerapan Safety, Health, and Environment (SHE) sesuai Peraturan Rektor UGM, seluruh sivitas Fakultas Teknik wajib mengutamakan keselamatan saat berkendara di lingkungan kampus.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        lineHeight = 20.sp
                     )
                 }
             }
 
-            // Card 1 (pengantar) + sticker left
             item {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    // sticker left
-                    Image(
-                        painter = painterResource(R.drawable.info2),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .align(Alignment.TopStart)
-                            .offset(x = (-6).dp, y = (-8).dp)
-                    )
-
-                    InfoCard {
-                        Text(
-                            "Dalam mendukung penerapan Safety, Health, and Environment (SHE) sesuai Peraturan Rektor UGM, seluruh sivitas Fakultas Teknik wajib mengutamakan keselamatan saat berkendara di lingkungan kampus.",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
+                ForegroundStickerCard(
+                    sticker = R.drawable.info3,
+                    stickerSide = StickerSide.END,
+                    stickerAlpha = 0.85f,
+                    innerPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+                    extraContentPadding = PaddingValues(start = 8.dp, end = 82.dp, top = 2.dp, bottom = 2.dp),
+                    stickerSize = 64.dp
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Bullet("Memakai helm (untuk motor) dan sabuk pengaman (untuk mobil)")
+                        Bullet("Membatasi kecepatan maksimal 30 km/jam")
+                        Bullet("Mematuhi rambu lalu lintas dan portal kendaraan")
+                        Bullet("Parkir tertib di lokasi yang telah ditentukan")
+                        Bullet("Tidak menggunakan HP saat berkendara, tidak melawan arus, dan tidak menghalangi jalur evakuasi")
                     }
                 }
             }
 
-            // Card 2 (list aturan) + seatbelt sticker on the right
             item {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    InfoCard {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Bullet("Memakai helm (untuk motor) dan sabuk pengaman (untuk mobil)")
-                            Bullet("Membatasi kecepatan maksimal 30 km/jam")
-                            Bullet("Mematuhi rambu lalu lintas dan portal kendaraan")
-                            Bullet("Parkir tertib di lokasi yang telah ditentukan")
-                            Bullet("Tidak menggunakan HP saat berkendara, tidak melawan arus, dan tidak menghalangi jalur evakuasi")
-                        }
-                    }
-
-                    Image(
-                        painter = painterResource(R.drawable.info3),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(84.dp)
-                            .align(Alignment.CenterEnd)
-                            .offset(x = 4.dp, y = 24.dp)
+                ForegroundStickerCard(
+                    sticker = R.drawable.info4,
+                    stickerSide = StickerSide.END,
+                    stickerAlpha = 0.9f,
+                    innerPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                    extraContentPadding = PaddingValues(start = 8.dp, end = 76.dp),
+                    stickerSize = 60.dp
+                ) {
+                    Text(
+                        "Keselamatan adalah tanggung jawab bersama. Mari wujudkan lingkungan FT UGM yang aman, sehat, dan tertib ✨",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                        lineHeight = 20.sp
                     )
                 }
             }
 
-            // Card 3 (penutup) + car sticker bottom right + megaphone bottom left
             item {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    InfoCard {
-                        Text(
-                            "Keselamatan adalah tanggung jawab bersama. Mari wujudkan lingkungan FT UGM yang aman, sehat, dan tertib ✨",
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        )
-                    }
-
-                    Image(
-                        painter = painterResource(R.drawable.info4),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(86.dp)
-                            .align(Alignment.BottomEnd)
-                            .offset(y = 6.dp)
+                Button(
+                    onClick = { uri.openUri("https://ugm.id/TegakSHEI") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Navy,
+                        contentColor = Color.White
                     )
+                ) {
+                    Icon(Icons.Outlined.OpenInNew, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Lihat panduan lengkap TegakSHEI")
                 }
             }
-
-            // bottom spacing (no OS handle bar drawn by us — this is just space)
-            item { Spacer(Modifier.height(16.dp)) }
         }
     }
 }
 
-/* ---------- Small building blocks ---------- */
+private enum class StickerSide { START, END }
 
 @Composable
-private fun InfoCard(content: @Composable ColumnScope.() -> Unit) {
+private fun ForegroundStickerCard(
+    @DrawableRes sticker: Int,
+    stickerSide: StickerSide,
+    stickerAlpha: Float,
+    innerPadding: PaddingValues,
+    extraContentPadding: PaddingValues,
+    stickerSize: Dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp),
-        shape = RoundedCornerShape(18.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-                .copy(alpha = 0.96f)
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(6.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            content = content
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(innerPadding)
+        ) {
+            Image(
+                painter = painterResource(sticker),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(if (stickerSide == StickerSide.START) Alignment.TopStart else Alignment.CenterEnd)
+                    .size(stickerSize)
+                    .alpha(stickerAlpha)
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(extraContentPadding),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content
+            )
+        }
     }
 }
 
@@ -211,20 +226,21 @@ private fun Bullet(text: String) {
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.primary)
         )
-        Text(text, style = MaterialTheme.typography.bodyLarge)
+        Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 20.sp)
     }
 }
 
-/* ---------- Previews ---------- */
-
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_NO, name = "Information – Light")
+@Preview(
+    showBackground = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO,
+    name = "Information – Light"
+)
 @Composable
 private fun PreviewInformationLight() {
-    SmartParkingTheme(dynamicColor = false) { InformationPage() }
-}
-
-@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES, name = "Information – Dark")
-@Composable
-private fun PreviewInformationDark() {
-    SmartParkingTheme(darkTheme = true, dynamicColor = false) { InformationPage() }
+    SmartParkingTheme(
+        darkTheme = false,
+        dynamicColor = false
+    ) {
+        InformationPage()
+    }
 }
