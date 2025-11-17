@@ -310,20 +310,20 @@ async def detect_cars(file: UploadFile = File(...)):
                 "optimization": f"Queried {len(slot_data)} slots instead of all slots"
             }
             
-            # STAGE 3: Run hogging detection ONLY on relevant slots
-            # Only analyze detections if we have both relevant slot regions and detections
-            if len(detections_serializable) > 0 and len(relevant_slot_regions) > 0:
+            # STAGE 3: Run hogging detection and validation
+            if len(relevant_slot_regions) > 0:
                 hogging_analysis = hogging_detection(detections_serializable, relevant_slot_regions)
                 
                 logger.info(f"🎯 Stage 3: Hogging analysis complete - {hogging_analysis['total_violations']} violations found")
                 
+                # CASE 1 & 2: Handle normal occupancy and hogging violations
                 if hogging_analysis["total_violations"] > 0:
                     logger.warning(f"⚠️ Detected {hogging_analysis['total_violations']} slot hogging violations!")
                     for violation in hogging_analysis["violations"]:
                         slots_str = ", ".join(violation['occupied_slots'])
                         logger.warning(f"   🚗 Car (conf: {violation['confidence']:.2f}) hogging slots: {slots_str}")
                         
-                        # Find a userid from the occupied slots (skip userid=0)
+                        # CASE 2: Car is hogging - fetch userid from one of the occupied slots
                         violator_userid = None
                         violator_slot = None
                         for slot_id in violation['occupied_slots']:
@@ -347,8 +347,25 @@ async def detect_cars(file: UploadFile = File(...)):
                                 logger.info(f"⏭️ Violation already exists for userid={violator_userid} at slot {violator_slot}")
                         else:
                             logger.warning(f"⚠️ No valid userid found in hogging slots: {slots_str}")
+                
+                # CASE 3: Validate occupied slots - check if DB says occupied but camera sees no car
+                slot_occupancy = hogging_analysis.get('slot_occupancy', {})
+                for slot_id in occupied_slots:
+                    slot_camera_status = slot_occupancy.get(slot_id, {})
+                    is_car_detected = slot_camera_status.get('is_occupied', False)
+                    
+                    # DB says occupied but camera doesn't detect a car
+                    if not is_car_detected:
+                        logger.warning(f"⚠️ Slot {slot_id}: DB says 'occupied' but no car detected by camera")
+                        logger.info(f"🔄 Updating slot {slot_id} status from 'occupied' to 'available'")
+                        
+                        # Update database to mark slot as available
+                        await db_manager.update_slot_status(slot_id, False)
+                        logger.info(f"✅ Slot {slot_id} status corrected to 'available'")
+                
+                logger.info(f"✅ Case validation complete: {len(occupied_slots)} slots checked")
             else:
-                logger.info("ℹ️ No detections or no relevant slots, skipping hogging analysis")
+                logger.info("ℹ️ No relevant slots to analyze")
         
         logger.info(f"Detected {len(detections)} cars in {stats.get('avg_time', 0.0):.3f}s")
         
@@ -364,49 +381,11 @@ async def get_logs() -> List[Dict]:
     """Returns the most recent messages stored in memory."""
     return mqtt_manager.get_messages()
 
-@app.get("/parking-slots", summary="Get current parking slot occupancy status")
-async def get_parking_slots_api():
-    """
-    Returns the current occupancy status of all parking slots with debouncing info.
-    Data is received from MQTT topic: SPARK_C06/isOccupied/{slotID}
-    """
-    parking_slots = mqtt_manager.get_parking_slots()
-    return {
-        "status": "success",
-        "total_slots": len(parking_slots),
-        "slots": [slot.to_dict() for slot in parking_slots.values()],
-        "summary": {
-            "occupied": sum(1 for slot in parking_slots.values() if slot.is_occupied),
-            "available": sum(1 for slot in parking_slots.values() if not slot.is_occupied),
-            "pending": sum(1 for slot in parking_slots.values() if slot.pending_value is not None)
-        },
-        "config": {
-            "debounce_window_ms": DEBOUNCE_WINDOW_MS,
-            "cooldown_ms": COOLDOWN_MS,
-            "occupied_keyword": OCCUPIED_KEYWORD,
-            "available_keyword": AVAILABLE_KEYWORD
-        },
-        "performance": {
-            "total_messages": sum(slot.message_count for slot in parking_slots.values())
-        }
-    }
-
-
 class ParkingStatusRequest(BaseModel):
     slot_id: str
 
 @app.post("/parkingStatus")
 async def get_parking_status(request: ParkingStatusRequest):
-    """
-    Returns the current occupancy status of a parking slot from the database.
-    This reflects the actual database state updated via MQTT messages.
-    
-    Parameters:
-    - slot_id: Required. A single slot ID (string).
-    
-    Returns:
-    - The status value (e.g., "occupied" or "available") or None if not found.
-    """
     slot_status = await db_manager.get_slot_status(request.slot_id)
     
     if slot_status is None:
@@ -433,9 +412,6 @@ async def trigger_buzzer(sensor_payload: AlarmPayload):
     else:
         print(f"❌ [Backend] Failed to send alarm signal to topic: {alarm_topic}")
         return {"status": "error", "message": "Failed to send MQTT message."}
-
-
-
 
 
 if __name__ == "__main__":

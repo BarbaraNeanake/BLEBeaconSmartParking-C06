@@ -141,7 +141,7 @@ class DatabaseManager:
             
             # Query slot status
             cursor.execute(
-                "SELECT nomor, status, userid FROM parking WHERE nomor = %s",
+                "SELECT nomor, status FROM parking WHERE nomor = %s",
                 (slot_id,)
             )
             row = cursor.fetchone()
@@ -153,8 +153,7 @@ class DatabaseManager:
             if row:
                 return {
                     "nomor": row[0],
-                    "status": row[1],
-                    "userid": row[2] if row[2] is not None else 0
+                    "status": row[1]
                 }
             else:
                 logger.warning(f"⚠️ Slot {slot_id} not found in database")
