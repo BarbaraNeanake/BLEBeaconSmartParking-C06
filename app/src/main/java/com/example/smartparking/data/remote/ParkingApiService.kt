@@ -4,8 +4,7 @@ import com.example.smartparking.data.model.Parking
 import retrofit2.Response
 import retrofit2.http.*
 
-data class UpdateParkingRequest(
-    val status: String,      // "occupied" | "available" | "disabled_slot"
+data class UpdateParkingRequest( // "occupied" | "available" | "disabled_slot"
     val userid: Int? = null
 )
 

@@ -101,20 +101,20 @@ class LiveParkingViewModel(
                         println("🚪 User $userId keluar area parkir (Gate_Out)")
 
                         // fallback: cari slot occupied jika lastOccupiedSlot hilang
-//                        val slotToFree = lastOccupiedSlotId
-//                            ?: _statusById.value.entries
-//                                .firstOrNull { it.value == "occupied" }?.key
-//
-//                        if (slotToFree != null) {
-//                            println("🔓 Membebaskan slot $slotToFree (Gate_Out)")
-//                            updateSlotStatus(slotToFree, "available", 0) // Opsi A
-//                            _statusById.value = _statusById.value
-//                                .toMutableMap().apply {
-//                                    this[slotToFree] = "available"
-//                                }
-//                        } else {
-//                            println("⚠ Tidak ada slot yang bisa dibebaskan saat Gate_Out")
-//                        }
+                        val slotToFree = lastOccupiedSlotId
+                            ?: _statusById.value.entries
+                                .firstOrNull { it.value == "occupied" }?.key
+
+                        if (slotToFree != null) {
+                            println("🔓 Membebaskan slot $slotToFree (Gate_Out)")
+                            updateSlotStatus(slotToFree, 0) // Opsi A
+                            _statusById.value = _statusById.value
+                                .toMutableMap().apply {
+                                    this[slotToFree] = "available"
+                                }
+                        } else {
+                            println("⚠ Tidak ada slot yang bisa dibebaskan saat Gate_Out")
+                        }
 
                         logUserActivity(userId, "Gate_Out", "exited")
 
@@ -142,16 +142,13 @@ class LiveParkingViewModel(
                         lastOccupiedSlotId?.let { oldSlot ->
                             if (oldSlot != newLoc) {
                                 println("🔄 Bebaskan slot lama $oldSlot")
-                                updateSlotStatus(oldSlot, "available", userId)
+                                updateSlotStatus(oldSlot, userId)
                             }
                         }
 
                         // Update slot baru
-                        updateSlotStatus(newLoc, "occupied", userId)
+                        updateSlotStatus(newLoc, userId)
                         logUserActivity(userId, newLoc, "parking")
-
-                        _statusById.value = _statusById.value.toMutableMap()
-                            .apply { this[newLoc] = "occupied" }
 
                         lastOccupiedSlotId = newLoc.uppercase()   // <-- PENTING
 
@@ -198,7 +195,6 @@ class LiveParkingViewModel(
 
     private suspend fun updateSlotStatus(
         slotId: String,
-        status: String,
         userId: Int
     ) {
         var nomor: Int? = cacheSlotToNomor[slotId]
@@ -214,10 +210,10 @@ class LiveParkingViewModel(
 
         requireNotNull(nomor) { "Slot $slotId tidak ditemukan di database" }
 
+        // 🔵 Kirim hanya userid → WITHOUT STATUS
         val resp = repo.updateParking(
             nomor = nomor!!,
-            status = status,
-            userID = userId   // <-- Opsi A: tidak null
+            userID = userId
         )
 
         if (!resp.isSuccessful) {

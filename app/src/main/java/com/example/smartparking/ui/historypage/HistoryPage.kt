@@ -163,37 +163,52 @@ private fun HistoryContent(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(min = 120.dp, max = 340.dp)
-                                    .padding(horizontal = 6.dp)
+                                    .padding(horizontal = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                ui.items.forEach { log ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val (date, timePart) = extractDateTimeParts(log.time)
-                                        Column(
-                                            modifier = Modifier.weight(1.2f),
-                                            horizontalAlignment = Alignment.CenterHorizontally
+
+                                if (ui.items.isEmpty()) {
+                                    // 🟦 Tampilkan tulisan "Tidak ada log"
+                                    Text(
+                                        text = "Tidak ada log",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.Gray
+                                        ),
+                                        modifier = Modifier.padding(vertical = 20.dp)
+                                    )
+                                } else {
+                                    // 🟩 Tampilkan list item seperti biasa
+                                    ui.items.forEach { log ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(date, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                                            Text(timePart, style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray))
+                                            val (date, timePart) = extractDateTimeParts(log.time)
+                                            Column(
+                                                modifier = Modifier.weight(1.2f),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(date, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                                Text(timePart, style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray))
+                                            }
+                                            Text(log.area ?: "-", textAlign = TextAlign.Center, modifier = Modifier.weight(0.8f))
+                                            val color = when (log.status?.lowercase()) {
+                                                "masuk" -> Color(0xFF4CAF50)
+                                                "keluar" -> Color(0xFFF44336)
+                                                else -> Color.Gray
+                                            }
+                                            Text(
+                                                log.status?.uppercase() ?: "-",
+                                                textAlign = TextAlign.Center,
+                                                color = color,
+                                                modifier = Modifier.weight(1.0f)
+                                            )
                                         }
-                                        Text(log.area?: "-", textAlign = TextAlign.Center, modifier = Modifier.weight(0.8f))
-                                        val color = when (log.status?.lowercase()) {
-                                            "masuk" -> Color(0xFF4CAF50)
-                                            "keluar" -> Color(0xFFF44336)
-                                            else -> Color.Gray
-                                        }
-                                        Text(
-                                            log.status?.uppercase() ?: "-",
-                                            textAlign = TextAlign.Center,
-                                            color = color,
-                                            modifier = Modifier.weight(1.0f)
-                                        )
+                                        Divider()
                                     }
-                                    Divider()
                                 }
                             }
                         }

@@ -18,6 +18,7 @@ data class HistoryUiState(
     val loading: Boolean = true,
     val name: String = "",
     val items: List<LogActivity> = emptyList(),
+    val emptyMessage: String? = null,
     val error: String? = null
 )
 
@@ -45,15 +46,29 @@ class HistoryViewModel(
                     _ui.value = HistoryUiState(loading = false, error = "Belum login.")
                     return@launch
                 }
+
                 val response = RetrofitProvider.logActivityApi
-                    .getLogById(session.userId ?: -1) // <-- pakai userId
+                    .getLogById(session.userId ?: -1)
+
+                // ✅ Jika API balas 404 (log tidak ditemukan), tampilkan kosong tanpa error
+                if (response.code() == 404) {
+                    _ui.value = HistoryUiState(
+                        loading = false,
+                        name = session.name,
+                        items = emptyList(),
+                        emptyMessage = "Tidak ada log",
+                        error = null
+                    )
+                    return@launch
+                }
 
                 if (response.isSuccessful) {
                     val logs = response.body().orEmpty()
                     _ui.value = HistoryUiState(
                         loading = false,
                         name = session.name,
-                        items = logs
+                        items = logs,
+                        emptyMessage = if (logs.isEmpty()) "Tidak ada log" else null
                     )
                 } else {
                     _ui.value = HistoryUiState(
@@ -61,6 +76,7 @@ class HistoryViewModel(
                         error = "Gagal memuat log (${response.code()})"
                     )
                 }
+
             } catch (e: Exception) {
                 _ui.value = HistoryUiState(
                     loading = false,
