@@ -34,7 +34,10 @@ app = FastAPI(
 latest_image: bytes = None
 
 class AlarmPayload(BaseModel):
-    sensor_id: str
+    sensor_id: int
+
+class ParkingStatusRequest(BaseModel):
+    slot_id: int
 
 app.add_middleware(
     CORSMiddleware,
@@ -196,7 +199,6 @@ async def root():
     return {
         "status": "ok", 
         "message": "SPARK Backend - Car Detection & IoT",
-        "version": "1.0.0",
         "features": {
             "car_detection": "/detect - POST image for car detection with hogging detection",
             "parking_slots": "/parking-slots - GET all parking slot statuses (MQTT-based)",
@@ -380,9 +382,6 @@ async def detect_cars(file: UploadFile = File(...)):
 async def get_logs() -> List[Dict]:
     """Returns the most recent messages stored in memory."""
     return mqtt_manager.get_messages()
-
-class ParkingStatusRequest(BaseModel):
-    slot_id: str
 
 @app.post("/parkingStatus")
 async def get_parking_status(request: ParkingStatusRequest):

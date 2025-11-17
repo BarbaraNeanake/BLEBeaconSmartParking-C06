@@ -199,7 +199,5 @@ def hogging_detection(detections: List[Dict], slot_regions_dict: Dict[str, Dict]
         "slot_occupancy": slot_occupancy,
         "total_violations": len(violations),
         "affected_slots": [slot_id for slot_id, data in slot_occupancy.items() if data["is_violation"]],
-        "total_slots": len(slot_regions_dict),
-        "method": "x_axis_bounds",
-        "note": "Simple X-axis method. Limitations: ignores Y-axis, may have false positives in multi-row parking."
+        "total_slots": len(slot_regions_dict)
     }
