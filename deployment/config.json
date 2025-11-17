@@ -1,0 +1,6 @@
+{
+  "num_classes": 1,
+  "conf_threshold": 0.985,
+  "nms_threshold": 0.3,
+  "class_names": ["car"]
+}

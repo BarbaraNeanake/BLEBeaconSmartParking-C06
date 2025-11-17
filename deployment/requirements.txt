@@ -1,4 +1,15 @@
+# Core API dependencies
 fastapi
 uvicorn[standard]
-paho-mqtt
+python-multipart
 pydantic
+paho-mqtt
+psycopg2-binary
+
+# Core inference dependencies
+numpy>=1.19.0
+opencv-python>=4.5.0
+pillow
+
+# Model dependencies
+huggingface-hub>=0.16.0

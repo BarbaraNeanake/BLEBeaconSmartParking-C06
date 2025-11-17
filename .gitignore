@@ -47,9 +47,24 @@ gradle.properties
 .idea/workspace.xml
 .idea/gradle.xml
 .idea/navEditor.xml
-deployment/MQTT/testing.py
+
+# deployment
+/deployment/spark_engine/__pycache__/
+deployment/models/
+deployment/test_engine.py
+deployment/anchors.npy
 
 # comvis
 /comvis/datasets
 /comvis/__pycache__
 /comvis/models
+/comvis/docs
+/comvis/test_images
+/comvis/test_results
+/comvis/utils/__pycache__
+/comvis/results
+comvis/analyze_dataset.py
+comvis/car_size_distribution.png
+/datasets
+
+deployment/postman_wannabe.py

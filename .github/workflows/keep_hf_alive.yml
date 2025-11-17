@@ -10,4 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send request to Hugging Face Space
-        run: curl -s "https://danishritonga-caps-backend.hf.space" > /dev/null
+        run: curl -s "https://danishritonga-spark-backend.hf.space" > /dev/null
