@@ -191,17 +191,6 @@ class DatabaseManager:
 
 
     async def get_occupied_slots_with_neighbors(self) -> Dict[str, Dict[str, any]]:
-        """
-        Retrieve only occupied parking slots and their horizontal neighbors from Neon DB.
-        This reduces query load by ~90% compared to fetching all slots.
-        
-        Assumes slot naming convention: A01, A02, B01, etc.
-        Neighbors are determined by incrementing/decrementing the numeric part.
-        
-        Returns:
-            Dict of {slot_id: {"status": str, "userid": int, "query_reason": str}}
-            Returns empty dict if DB is not configured or query fails
-        """
         # Check if DB pool is initialized
         if self.pool is None:
             logger.warning("⚠️ DB pool not initialized, cannot fetch slot status")
@@ -293,18 +282,6 @@ class DatabaseManager:
 
 
     async def check_existing_violation(self, userid: int, nomor: str) -> bool:
-        """
-        Check if a violation already exists for this userid and slot combination.
-        Since the image contains multiple slots, we need to prevent duplicate violations
-        for the same user in the same slot during the same parking session.
-        
-        Args:
-            userid: The user ID to check
-            nomor: The parking slot number
-        
-        Returns:
-            True if violation exists, False otherwise
-        """
         # Check if DB pool is initialized
         if self.pool is None:
             logger.warning("⚠️ DB pool not initialized, cannot check existing violation")

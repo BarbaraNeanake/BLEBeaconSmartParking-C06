@@ -1,14 +1,37 @@
 """
-SPARK Reconnaissance Module
-Handles parking slot region management and violation detection (hogging).
+DEPRECATED: This file has been replaced by the spark_recon module (folder).
+
+The SPARK Reconnaissance Module has been refactored into separate files:
+- spark_recon/_slot_manager.py - Slot region management
+- spark_recon/_hogging.py - Hogging detection algorithm
+- spark_recon/_preprocessing.py - Image preprocessing
+- spark_recon/_validation.py - Database validation
+
+Use: from spark_recon import SlotRegionManager, hogging_detection, etc.
+
+This file can be safely deleted after verifying the new structure works.
 """
 
-import logging
-import json
-from typing import Dict, List
-from pathlib import Path
+# For backward compatibility, re-export from the new module structure
+from spark_recon import (
+    SlotRegionManager,
+    hogging_detection,
+    preprocess_uploaded_image,
+    serialize_detections,
+    fetch_relevant_slots,
+    handle_hogging_violations,
+    correct_false_positives
+)
 
-logger = logging.getLogger(__name__)
+__all__ = [
+    'SlotRegionManager',
+    'hogging_detection',
+    'preprocess_uploaded_image',
+    'serialize_detections',
+    'fetch_relevant_slots',
+    'handle_hogging_violations',
+    'correct_false_positives'
+]
 
 
 class SlotRegionManager:
@@ -103,10 +126,6 @@ def hogging_detection(detections: List[Dict], slot_regions_dict: Dict[str, Dict]
             "method": "x_axis_bounds"
         }
     
-    Note: This is a simple method with limitations:
-    - Ignores Y-axis (depth/row information)
-    - May give false positives for multi-row parking
-    - Best for single-row, side-by-side parking slots
     """
     violations = []
     slot_occupancy = {}
@@ -201,3 +220,145 @@ def hogging_detection(detections: List[Dict], slot_regions_dict: Dict[str, Dict]
         "affected_slots": [slot_id for slot_id, data in slot_occupancy.items() if data["is_violation"]],
         "total_slots": len(slot_regions_dict)
     }
+
+def preprocess_uploaded_image(image_bytes: bytes) -> np.ndarray:
+    """
+    Convert uploaded image to BGR format for model inference.
+    
+    Args:
+        image_bytes: Raw image bytes from upload
+    
+    Returns:
+        numpy array in BGR format (H, W, 3)
+    """
+    image = Image.open(io.BytesIO(image_bytes))
+    
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+    
+    image_array = np.array(image, dtype=np.uint8)
+    image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+    
+    return image_bgr
+
+
+def serialize_detections(detections: List[Dict]) -> List[Dict]:
+    """
+    Convert NumPy types to native Python types for JSON serialization.
+    
+    Args:
+        detections: List of detection dicts with NumPy types
+    
+    Returns:
+        List of detections with native Python types
+    """
+    return [
+        {
+            "bbox": [float(x) for x in det.get('bbox', [])],
+            "confidence": float(det.get('confidence', 0)),
+            "class": int(det.get('class', 0)),
+            "class_name": str(det.get('class_name', 'unknown'))
+        }
+        for det in detections
+    ]
+
+
+async def fetch_relevant_slots(db_manager, slot_regions: Dict) -> Tuple[Optional[Dict], Optional[Dict], Optional[List[str]]]:
+    """
+    Stage 1: Fetch occupied slots and neighbors from database.
+    
+    Args:
+        db_manager: DatabaseManager instance
+        slot_regions: Dict of all slot regions
+    
+    Returns:
+        Tuple of (slot_data, relevant_slot_regions, occupied_slots)
+        Returns (None, None, None) if no occupied slots found
+    """
+    slot_data = await db_manager.get_occupied_slots_with_neighbors()
+    
+    if not slot_data:
+        logger.info("ℹ️ No occupied slots found, skipping hogging detection")
+        return None, None, None
+    
+    occupied_count = sum(1 for s in slot_data.values() if s["query_reason"] == "occupied")
+    neighbor_count = sum(1 for s in slot_data.values() if s["query_reason"] == "neighbor")
+    logger.info(f"📊 Stage 1: Retrieved {occupied_count} occupied + {neighbor_count} neighbor slots")
+    
+    # Filter to relevant regions
+    relevant_slot_regions = {
+        slot_id: slot_regions[slot_id] 
+        for slot_id in slot_data.keys() 
+        if slot_id in slot_regions
+    }
+    
+    occupied_slots = [slot_id for slot_id, data in slot_data.items() if data["status"] == 'occupied']
+    
+    return slot_data, relevant_slot_regions, occupied_slots
+
+
+async def handle_hogging_violations(violations: List[Dict], slot_data: Dict, db_manager):
+    """
+    Case 2: Process hogging violations and log to database.
+    
+    Args:
+        violations: List of hogging violation dicts
+        slot_data: Dict of slot data with userid info
+        db_manager: DatabaseManager instance
+    """
+    if not violations:
+        return
+    
+    logger.warning(f"⚠️ Detected {len(violations)} slot hogging violations!")
+    
+    for violation in violations:
+        slots_str = ", ".join(violation['occupied_slots'])
+        logger.warning(f"   🚗 Car (conf: {violation['confidence']:.2f}) hogging slots: {slots_str}")
+        
+        # Find userid from occupied slots (skip userid=0)
+        violator_userid = None
+        violator_slot = None
+        
+        for slot_id in violation['occupied_slots']:
+            slot_info = slot_data.get(slot_id, {})
+            userid = slot_info.get('userid', 0)
+            if userid > 0:
+                violator_userid = userid
+                violator_slot = slot_id
+                break
+        
+        # Insert violation
+        if violator_userid and violator_slot:
+            inserted = await db_manager.insert_pelanggaran(
+                userid=violator_userid,
+                nomor=violator_slot,
+                jenis_pelanggaran="Slot Hogging"
+            )
+            if inserted:
+                logger.info(f"📝 Logged NEW violation for userid={violator_userid} at slot {violator_slot}")
+            else:
+                logger.info(f"⏭️ Violation already exists for userid={violator_userid} at slot {violator_slot}")
+        else:
+            logger.warning(f"⚠️ No valid userid found in hogging slots: {slots_str}")
+
+
+async def correct_false_positives(occupied_slots: List[str], slot_occupancy: Dict, db_manager):
+    """
+    Case 3: Correct slots marked as occupied but with no car detected.
+    
+    Args:
+        occupied_slots: List of slot IDs that DB says are occupied
+        slot_occupancy: Dict from hogging analysis with camera detection results
+        db_manager: DatabaseManager instance
+    """
+    for slot_id in occupied_slots:
+        slot_camera_status = slot_occupancy.get(slot_id, {})
+        is_car_detected = slot_camera_status.get('is_occupied', False)
+        
+        # DB says occupied but camera doesn't detect a car
+        if not is_car_detected:
+            logger.warning(f"⚠️ Slot {slot_id}: DB says 'occupied' but no car detected")
+            logger.info(f"🔄 Updating slot {slot_id} status to 'available'")
+            
+            await db_manager.update_slot_status(slot_id, False)
+            logger.info(f"✅ Slot {slot_id} status corrected")
