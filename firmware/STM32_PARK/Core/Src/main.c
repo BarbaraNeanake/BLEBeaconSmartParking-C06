@@ -32,6 +32,10 @@
 #define LED_PIN GPIO_PIN_13
 #define LED_PORT GPIOC
 
+// Buzzer Configuration
+#define BUZZER_PIN GPIO_PIN_14
+#define BUZZER_PORT GPIOC
+
 // WiFi Credentials
 #define WIFI_SSID "bo"
 #define WIFI_PASSWORD "yayayaya"
@@ -42,13 +46,20 @@
 #define MQTT_CLIENT_ID "SPARK_C06"
 
 // MQTT Topics
+#define MQTT_SLOT_ID "1"
 #define MQTT_TOPIC_BASE "SPARK_C06/isOccupied/"
-#define MQTT_TOPIC_PUB MQTT_TOPIC_BASE "slot1"  // Publish to specific slot
+#define MQTT_TOPIC_PING "SPARK_C06/ping/"
+#define MQTT_TOPIC_SLOT MQTT_TOPIC_BASE MQTT_SLOT_ID
+#define MQTT_TOPIC_ALARM MQTT_TOPIC_PING MQTT_SLOT_ID  // Subscribe to alarm
 #define MQTT_KEYWORD_OCCUPIED "True"
 #define MQTT_KEYWORD_EMPTY "False"
 
 // Buffer sizes
 #define RX_BUFFER_SIZE 512
+
+// Alarm Time
+#define ALARM_DURATION_MS 5000              // 5 seconds alarm duration
+#define BUZZER_TOGGLE_INTERVAL_MS 200       // Toggle buzzer every 200ms
 
 /* USER CODE END PD */
 
@@ -82,6 +93,11 @@ uint32_t last_publish_time = 0;
 uint8_t spot_occupied = 0;  // 0 = empty, 1 = occupied
 uint8_t last_spot_state = 0;
 
+// Alarm Variables
+volatile uint8_t alarm_active = 0;          // Whether alarm is currently active
+volatile uint32_t alarm_start_time = 0;     // When the alarm started
+volatile uint8_t buzzer_state = 0;          // Current state of buzzer (0=off, 1=on)
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -93,6 +109,7 @@ static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 // VL53L0X Functions
 void VL53L0X_ProcessRangingData(VL53L0X_RangingData_t *data);
+const char* b;
 
 // ESP-01 MQTT Functions
 static void send_AT(const char* cmd, uint32_t delay_ms);
@@ -102,6 +119,7 @@ static uint8_t ESP01_ConnectWiFi(const char* ssid, const char* password);
 static uint8_t ESP01_ConnectMQTTBroker(const char* broker, uint16_t port);
 static uint8_t ESP01_Send_MQTT_CONNECT(const char* clientID);
 static void ESP01_Send_MQTT_PUBLISH(const char* topic, const char* message);
+void ESP01_Send_MQTT_SUBSCRIBE(const char *topic, uint16_t packet_id);
 static void ESP01_SendPing(void);
 static void Blink_Status(uint8_t count, uint16_t delay);
 
@@ -181,6 +199,17 @@ static void send_data(uint8_t* data, uint16_t len)
     HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx_byte, 1);
 }
 
+void send_and_receive(const char *cmd, uint32_t delay_ms) {
+    uint8_t buffer[512] = {0};
+    if (cmd) HAL_UART_Transmit(&huart2, (uint8_t*)cmd, strlen(cmd), HAL_MAX_DELAY);
+    HAL_Delay(delay_ms);
+    /* Try read (timeout kecil biar nggak nge-blok terlalu lama) */
+    if (HAL_UART_Receive(&huart2, buffer, sizeof(buffer)-1, 200) == HAL_OK) {
+        buffer[sizeof(buffer)-1] = 0;
+        printf("ESP_RESP: %s\r\n", buffer);
+    }
+}
+
 /**
   * @brief Wait for '>' prompt from ESP-01 after AT+CIPSEND
   */
@@ -212,18 +241,44 @@ static uint8_t ESP01_ConnectWiFi(const char* ssid, const char* password)
 
     HAL_UART_Transmit(&huart2, (uint8_t*)wifiCommand, strlen(wifiCommand), HAL_MAX_DELAY);
 
-    // Blink during connection attempt
-    for (uint8_t i = 0; i < 40; i++)
-    {
-        HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-        HAL_Delay(250);
-    }
-    HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+    // Wait for response instead of blocking delay
+    uint32_t start_time = HAL_GetTick();
+    uint8_t connected = 0;
+    const uint32_t timeout = 15000;  // 15 seconds timeout
 
-    HAL_Delay(2000);
-    wifi_connected = 1;
-    printf("WiFi connected!\r\n");
-    return 1;
+    printf("Waiting for WiFi response");
+    while ((HAL_GetTick() - start_time) < timeout) {
+        if (rx_index > 0) {
+            if (strstr(rx_buffer, "WIFI GOT IP") ||
+                strstr(rx_buffer, "OK")) {
+                connected = 1;
+                break;
+            }
+            else if (strstr(rx_buffer, "FAIL") ||
+                     strstr(rx_buffer, "ERROR")) {
+                connected = 0;
+                break;
+            }
+            // Clear buffer after checking
+            rx_index = 0;
+            memset(rx_buffer, 0, RX_BUFFER_SIZE);
+        }
+        HAL_Delay(100);
+        printf(".");
+    }
+    printf("\r\n");
+
+    HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);  // Ensure LED off after attempt
+
+    if (connected) {
+        wifi_connected = 1;
+        printf("WiFi connected!\r\n");
+        return 1;
+    } else {
+        wifi_connected = 0;
+        printf("ERROR: WiFi connection failed! Last response: %s\r\n", rx_buffer);
+        return 0;
+    }
 }
 
 /**
@@ -284,11 +339,46 @@ static uint8_t ESP01_Send_MQTT_CONNECT(const char* clientID)
     wait_for_prompt();
 
     HAL_UART_Transmit(&huart2, packet, index, HAL_MAX_DELAY);
-    HAL_Delay(2000);
 
-    mqtt_connected = 1;
-    printf("MQTT connected!\r\n");
-    return 1;
+    // Wait for CONNACK response instead of blocking delay
+    uint32_t start_time = HAL_GetTick();
+    uint8_t connected = 0;
+    const uint32_t timeout = 5000;  // 5 seconds timeout
+
+    printf("Waiting for MQTT CONNACK");
+    while ((HAL_GetTick() - start_time) < timeout) {
+        if (rx_index > 0) {
+            // Check for CONNACK packet (first byte 0x20) or successful ESP response
+            if ((rx_index >= 4 && rx_buffer[0] == 0x20 && rx_buffer[3] == 0x00) ||
+                strstr(rx_buffer, "OK") ||
+                strstr(rx_buffer, "SEND OK")) {
+                connected = 1;
+                break;
+            }
+            else if (strstr(rx_buffer, "FAIL") ||
+                     strstr(rx_buffer, "ERROR") ||
+                     (rx_index >= 4 && rx_buffer[0] == 0x20 && rx_buffer[3] != 0x00)) {
+                connected = 0;
+                break;
+            }
+            // Clear buffer after checking to prevent overflow
+            rx_index = 0;
+            memset(rx_buffer, 0, RX_BUFFER_SIZE);
+        }
+        HAL_Delay(100);
+        printf(".");
+    }
+    printf("\r\n");
+
+    if (connected) {
+        mqtt_connected = 1;
+        printf("✅ MQTT connected successfully!\r\n");
+        return 1;
+    } else {
+        mqtt_connected = 0;
+        printf("❌ MQTT connection FAILED! Response: %s\r\n", rx_buffer[0] ? rx_buffer : "No response");
+        return 0;
+    }
 }
 
 /**
@@ -322,6 +412,152 @@ static void ESP01_Send_MQTT_PUBLISH(const char* topic, const char* message)
     printf("Published: %s -> %s\r\n", topic, message);
 }
 
+void ESP01_Send_MQTT_SUBSCRIBE(const char *topic, uint16_t packet_id) {
+    if (!topic) return;
+    printf("Subscribing to topic: %s\r\n", topic);
+
+        uint16_t tlen = strlen(topic);
+        uint16_t rem_len = 2 + 2 + tlen + 1; // Packet ID + topic length + topic + QoS
+
+        uint8_t pkt[64];
+        uint16_t idx = 0;
+
+        // Fixed header (SUBSCRIBE packet type with QoS 1)
+        pkt[idx++] = 0x82;  // MQTT SUBSCRIBE packet type
+        pkt[idx++] = (uint8_t)rem_len;
+
+        // Packet Identifier
+        pkt[idx++] = (uint8_t)((packet_id >> 8) & 0xFF);
+        pkt[idx++] = (uint8_t)(packet_id & 0xFF);
+
+        // Topic length
+        pkt[idx++] = (uint8_t)((tlen >> 8) & 0xFF);
+        pkt[idx++] = (uint8_t)(tlen & 0xFF);
+
+        // Topic string
+        memcpy(&pkt[idx], topic, tlen);
+        idx += tlen;
+
+        // QoS level (0)
+        pkt[idx++] = 0x00;
+
+        // Send command to ESP
+        char sendCmd[32];
+        snprintf(sendCmd, sizeof(sendCmd), "AT+CIPSEND=%u\r\n", idx);
+
+        // Use consistent communication method
+        send_AT(sendCmd, 1000);
+        send_data(pkt, idx);
+
+        printf("Subscription packet sent\r\n");
+
+        // Wait for SUBACK response
+        HAL_Delay(1000);
+        printf("ESP Response Buffer: %s\r\n", rx_buffer); // Debug what we received
+}
+
+void process_incoming_messages(void)
+{
+	// Look for ESP-01 data notification: "+IPD,<len>:<data>"
+	    char *ipd_ptr = strstr(rx_buffer, "+IPD");
+	    if (ipd_ptr) {
+	        // Extract length and data
+	        uint16_t data_len = 0;
+	        char *len_ptr = strchr(ipd_ptr, ',');
+	        if (len_ptr && sscanf(len_ptr+1, "%hu", &data_len) == 1) {
+	            char *data_ptr = strchr(ipd_ptr, ':');
+	            if (data_ptr && data_len > 0) {
+	                data_ptr++; // Skip the colon
+
+	                // Look for MQTT PUBLISH packet (first byte 0x30)
+	                if ((uint8_t)data_ptr[0] == 0x30) {
+	                    // Parse topic and message
+	                    uint8_t topic_len = (data_ptr[2] << 8) | data_ptr[3];
+	                    char topic[64] = {0};
+	                    char message[64] = {0};
+
+	                    // Extract topic
+	                    if (topic_len < sizeof(topic)) {
+	                        strncpy(topic, &data_ptr[4], topic_len);
+	                        topic[topic_len] = '\0';
+	                    }
+
+	                    // Extract message (simplified)
+	                    uint8_t msg_len = data_len - 4 - topic_len;
+	                    if (msg_len > 0 && msg_len < sizeof(message)) {
+	                        strncpy(message, &data_ptr[4 + topic_len], msg_len);
+	                        message[msg_len] = '\0';
+	                    }
+
+	                    // Handle specific topics - ACTIVATE BUZZER ALARM
+	                    if (strstr(topic, MQTT_TOPIC_ALARM)) {
+	                        printf("🚨 ALARM ACTIVATED VIA MQTT!\r\n");
+	                        printf("Topic: %s | Message: %s\r\n", topic, message);
+
+	                        // Start 5-second buzzer alarm
+	                        __disable_irq();
+	                        alarm_active = 1;
+	                        alarm_start_time = HAL_GetTick();
+	                        buzzer_state = 0; // Start with buzzer off
+	                        __enable_irq();
+
+	                        // Turn on LED as visual indicator
+	                        HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
+	                    }
+	                }
+	            }
+	        }
+
+	        // Clear buffer after processing
+	        rx_index = 0;
+	        memset(rx_buffer, 0, RX_BUFFER_SIZE);
+	    }
+}
+
+void handle_buzzer_alarm(void)
+{
+    if (!alarm_active) {
+        // Ensure buzzer is off when no alarm
+        if (buzzer_state != 0) {
+            HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+            buzzer_state = 0;
+        }
+        return;
+    }
+
+    uint32_t current_time = HAL_GetTick();
+    uint32_t elapsed_time = current_time - alarm_start_time;
+
+    // Check if alarm duration has elapsed
+    if (elapsed_time >= ALARM_DURATION_MS) {
+        // Deactivate alarm
+        alarm_active = 0;
+        HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+        buzzer_state = 0;
+        printf("✅ ALARM DEACTIVATED (5 seconds elapsed)\r\n");
+        return;
+    }
+
+    // Toggle buzzer at defined interval
+    static uint32_t last_toggle_time = 0;
+    if ((current_time - last_toggle_time) >= BUZZER_TOGGLE_INTERVAL_MS) {
+        last_toggle_time = current_time;
+
+        // Toggle buzzer state
+        if (buzzer_state == 0) {
+            HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_SET);
+            buzzer_state = 1;
+            printf("🔊 BUZZER ON [%lu/%lu ms]\r\n", elapsed_time, ALARM_DURATION_MS);
+        } else {
+            HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
+            buzzer_state = 0;
+            printf("🔇 BUZZER OFF [%lu/%lu ms]\r\n", elapsed_time, ALARM_DURATION_MS);
+        }
+    }
+}
+
 /**
   * @brief Send MQTT PINGREQ to keep connection alive
   */
@@ -342,15 +578,17 @@ static void ESP01_SendPing(void)
   */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART1)
+    if (huart->Instance == USART2)
     {
         if (rx_index < RX_BUFFER_SIZE - 1)
         {
             rx_buffer[rx_index++] = rx_byte;
+            rx_buffer[rx_index] = '\0'; // Null-terminate for string operations
         }
         else
         {
             rx_index = 0;
+            memset(rx_buffer, 0, RX_BUFFER_SIZE);
         }
 
         HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx_byte, 1);
@@ -405,10 +643,11 @@ int main(void)
 
   printf("\r\n\r\n");
   printf("====================================================\r\n");
-  printf("   VL53L0X + MQTT - STM32F103C8T6                  \r\n");
+  printf("   SPARK - SMART PARKING SOLUTION - C06               \r\n");
   printf("====================================================\r\n\r\n");
 
   // System ready blink
+  HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx_byte, 1);
   Blink_Status(3, 200);
   HAL_Delay(2000);
 
@@ -416,21 +655,14 @@ int main(void)
   rx_index = 0;
   memset(rx_buffer, 0, RX_BUFFER_SIZE);
 
+
   // Disable echo
   send_AT("ATE0\r\n", 500);
   HAL_Delay(500);
 
   // Connect to WiFi
-  if (ESP01_ConnectWiFi(WIFI_SSID, WIFI_PASSWORD))
-  {
-      Blink_Status(3, 300);
-      HAL_Delay(1000);
-  }
-  else
-  {
-      printf("WiFi connection failed!\r\n");
-      Blink_Status(10, 200);
-      while(1) { HAL_Delay(1000); }
+  while(!wifi_connected) {
+	  ESP01_ConnectWiFi(WIFI_SSID, WIFI_PASSWORD);
   }
 
   // Connect to MQTT Broker
@@ -465,24 +697,21 @@ int main(void)
 
 
 
-
   // Initialize VL53L0X
   printf("Initializing VL53L0X sensor...\r\n");
-  if (!VL53L0X_IsDeviceReady(&hi2c1)) {
+  while (!VL53L0X_IsDeviceReady(&hi2c1)) {
       printf("ERROR: VL53L0X not detected!\r\n");
-      while(1) {
-          HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-          HAL_Delay(200);
-      }
+      printf("Retrying to find VL53L0X sensor...\r\n");
+      VL53L0X_IsDeviceReady(&hi2c1);
+      HAL_Delay(500);
   }
 
   vl_status = VL53L0X_Init(&hi2c1);
-  if (vl_status != VL53L0X_OK) {
+  while (vl_status != VL53L0X_OK) {
       printf("ERROR: VL53L0X initialization failed!\r\n");
-      while(1) {
-          HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-          HAL_Delay(500);
-      }
+      printf("Retrying VL53L0X initialization...\r\n");
+      vl_status = VL53L0X_Init(&hi2c1);
+      HAL_Delay(500);
   }
   printf("VL53L0X initialized successfully!\r\n\r\n");
 
@@ -507,22 +736,41 @@ int main(void)
   printf("System ready! Monitoring parking spot...\r\n");
   printf("====================================================\r\n\r\n");
 
+  send_AT("AT\r\n", 1000);
+  printf("AT Response: %s\r\n", rx_buffer);
+  ESP01_Send_MQTT_SUBSCRIBE(MQTT_TOPIC_ALARM, 1);
+  HAL_Delay(2000);
+  printf("After subscribe buffer: %s\r\n", rx_buffer);
+
   HAL_Delay(200);
 
   last_ping_time = HAL_GetTick();
   last_publish_time = HAL_GetTick();
-
+  ESP01_Send_MQTT_SUBSCRIBE(MQTT_TOPIC_ALARM, 1);
+  //ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, "BANG TOLONG BANG");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  // Handle buzzer alarm if active
+	      handle_buzzer_alarm();
+
+	      // Process any incoming MQTT messages
+	      if (rx_index > 0) {
+	          process_incoming_messages();
+	      }
+
+	      HAL_Delay(10); // Small delay for responsiveness
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 
     // Read VL53L0X sensor
+
     vl_status = VL53L0X_ReadRangeData(&hi2c1, &rangingData);
 
     if (vl_status == VL53L0X_OK && rangingData.range_status == 0)
@@ -535,7 +783,7 @@ int main(void)
             if (!spot_occupied) {
                 spot_occupied = 1;
                 printf("\r\n>>> CAR DETECTED! Publishing to MQTT...\r\n");
-                ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_PUB, MQTT_KEYWORD_OCCUPIED);
+                ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_OCCUPIED);
                 Blink_Status(3, 100);
                 printf("\r\n");
             }
@@ -544,7 +792,7 @@ int main(void)
             if (spot_occupied) {
                 spot_occupied = 0;
                 printf("\r\n>>> SPOT CLEARED! Publishing to MQTT...\r\n");
-                ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_PUB, MQTT_KEYWORD_EMPTY);
+                ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_EMPTY);
                 Blink_Status(2, 150);
                 printf("\r\n");
             }
