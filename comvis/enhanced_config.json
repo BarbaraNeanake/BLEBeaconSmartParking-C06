@@ -10,7 +10,7 @@
   "lambda_coord": 5.0,
   "lambda_noobj": 0.5,
   "lambda_obj": 1.0,
-  "conf_threshold": 0.985,
+  "conf_threshold": 0.7,
   "nms_threshold": 0.3,
   "max_detections": 12,
   "dataset_root": "datasets/Enhanced_Roboflow",
