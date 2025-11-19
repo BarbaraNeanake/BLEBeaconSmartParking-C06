@@ -206,11 +206,12 @@ class SPARKEngine:
                     th = detections[0, offset + 3, h, w]
                     conf = detections[0, offset + 4, h, w]
                     
-                    # Decode bbox
+                    # Decode bbox with anchor scaling
                     bx = (w + 1.0 / (1.0 + np.exp(-tx))) * (416 / grid_w)
                     by = (h + 1.0 / (1.0 + np.exp(-ty))) * (416 / grid_h)
-                    bw = np.exp(tw) * 416
-                    bh = np.exp(th) * 416
+                    # Apply anchor scaling (FIX: was missing anchor multiplication)
+                    bw = np.exp(tw) * self.anchors[a][0] * (416 / grid_w)
+                    bh = np.exp(th) * self.anchors[a][1] * (416 / grid_h)
                     
                     x1 = bx - bw / 2
                     y1 = by - bh / 2

@@ -189,57 +189,60 @@ class YOLODetectionHead:
     def __init__(self, num_classes: int = 1):
         self.num_classes = num_classes
         
-        # Detection head layers: 512 → 512 → 256 → 256 → (B*(5+C))
-        # where B=5 anchors, C=num_classes
+        # Detection head layers matching comvis architecture:
+        # Conv3x3 (512→512) + BN + LeakyReLU + Dropout
+        # Conv3x3 (512→512) + BN + LeakyReLU
+        # Conv1x1 (512→256) + BN + LeakyReLU
+        # Conv1x1 (256→output)
         self.num_anchors = 5
         
-        # Conv layer 1: 512 -> 512
-        self.conv1_weight = np.random.randn(512, 512, 1, 1).astype(np.float32) * 0.01
+        # Conv layer 1: 512 -> 512, kernel=3x3
+        self.conv1_weight = np.random.randn(512, 512, 3, 3).astype(np.float32) * 0.01
         self.conv1_bn_weight = np.ones(512, dtype=np.float32)
         self.conv1_bn_bias = np.zeros(512, dtype=np.float32)
         self.conv1_bn_mean = np.zeros(512, dtype=np.float32)
         self.conv1_bn_var = np.ones(512, dtype=np.float32)
         
-        # Conv layer 2: 512 -> 256
-        self.conv2_weight = np.random.randn(256, 512, 1, 1).astype(np.float32) * 0.01
-        self.conv2_bn_weight = np.ones(256, dtype=np.float32)
-        self.conv2_bn_bias = np.zeros(256, dtype=np.float32)
-        self.conv2_bn_mean = np.zeros(256, dtype=np.float32)
-        self.conv2_bn_var = np.ones(256, dtype=np.float32)
+        # Conv layer 2: 512 -> 512, kernel=3x3
+        self.conv2_weight = np.random.randn(512, 512, 3, 3).astype(np.float32) * 0.01
+        self.conv2_bn_weight = np.ones(512, dtype=np.float32)
+        self.conv2_bn_bias = np.zeros(512, dtype=np.float32)
+        self.conv2_bn_mean = np.zeros(512, dtype=np.float32)
+        self.conv2_bn_var = np.ones(512, dtype=np.float32)
         
-        # Conv layer 3: 256 -> 256
-        self.conv3_weight = np.random.randn(256, 256, 1, 1).astype(np.float32) * 0.01
+        # Conv layer 3: 512 -> 256, kernel=1x1
+        self.conv3_weight = np.random.randn(256, 512, 1, 1).astype(np.float32) * 0.01
         self.conv3_bn_weight = np.ones(256, dtype=np.float32)
         self.conv3_bn_bias = np.zeros(256, dtype=np.float32)
         self.conv3_bn_mean = np.zeros(256, dtype=np.float32)
         self.conv3_bn_var = np.ones(256, dtype=np.float32)
         
-        # Final prediction layer: 256 -> (B*(5+C))
+        # Final prediction layer: 256 -> (B*(5+C)), kernel=1x1
         out_channels = self.num_anchors * (5 + num_classes)
         self.conv_pred_weight = np.random.randn(out_channels, 256, 1, 1).astype(np.float32) * 0.01
         self.conv_pred_bias = np.zeros(out_channels, dtype=np.float32)
     
     def forward(self, x: np.ndarray) -> np.ndarray:
         """Forward pass through detection head"""
-        # Conv layer 1 with BN + ReLU
-        x = conv2d(x, self.conv1_weight, stride=1)
+        # Conv layer 1 (3x3) with BN + ReLU + Dropout (note: dropout not implemented in inference)
+        x = conv2d(x, self.conv1_weight, stride=1, pad=1)
         x = batch_norm(x, self.conv1_bn_weight, self.conv1_bn_bias, 
                       self.conv1_bn_mean, self.conv1_bn_var)
         x = relu(x)
         
-        # Conv layer 2 with BN + ReLU
-        x = conv2d(x, self.conv2_weight, stride=1)
+        # Conv layer 2 (3x3) with BN + ReLU
+        x = conv2d(x, self.conv2_weight, stride=1, pad=1)
         x = batch_norm(x, self.conv2_bn_weight, self.conv2_bn_bias,
                       self.conv2_bn_mean, self.conv2_bn_var)
         x = relu(x)
         
-        # Conv layer 3 with BN + ReLU
+        # Conv layer 3 (1x1) with BN + ReLU
         x = conv2d(x, self.conv3_weight, stride=1)
         x = batch_norm(x, self.conv3_bn_weight, self.conv3_bn_bias,
                       self.conv3_bn_mean, self.conv3_bn_var)
         x = relu(x)
         
-        # Prediction layer (no activation)
+        # Prediction layer (1x1, no activation)
         x = conv2d(x, self.conv_pred_weight, self.conv_pred_bias, stride=1)
         
         return x
@@ -256,28 +259,34 @@ class YOLODetectionHead:
             raise KeyError(f"Key '{key_name}' not found")
         
         try:
-            # conv.0 and conv.1 = first conv layer + bn (512 -> 512)
+            # Comvis model structure with Dropout2d:
+            # 0: Conv2d(512, 512, kernel_size=3) + 1: BatchNorm2d + 2: LeakyReLU + 3: Dropout2d
+            # 4: Conv2d(512, 512, kernel_size=3) + 5: BatchNorm2d + 6: LeakyReLU
+            # 7: Conv2d(512, 256, kernel_size=1) + 8: BatchNorm2d + 9: LeakyReLU
+            # 10: Conv2d(256, output, kernel_size=1)
+            
+            # conv.0 and conv.1 = first conv layer + bn (512 -> 512, 3x3)
             self.conv1_weight = get_key("conv.0.weight")
             self.conv1_bn_weight = get_key("conv.1.weight")
             self.conv1_bn_bias = get_key("conv.1.bias")
             self.conv1_bn_mean = get_key("conv.1.running_mean")
             self.conv1_bn_var = get_key("conv.1.running_var")
             
-            # conv.4 and conv.5 = second conv layer + bn (512 -> 256)
+            # conv.4 and conv.5 = second conv layer + bn (512 -> 512, 3x3)
             self.conv2_weight = get_key("conv.4.weight")
             self.conv2_bn_weight = get_key("conv.5.weight")
             self.conv2_bn_bias = get_key("conv.5.bias")
             self.conv2_bn_mean = get_key("conv.5.running_mean")
             self.conv2_bn_var = get_key("conv.5.running_var")
             
-            # conv.7 and conv.8 = third conv layer + bn (256 -> 256)
+            # conv.7 and conv.8 = third conv layer + bn (512 -> 256, 1x1)
             self.conv3_weight = get_key("conv.7.weight")
             self.conv3_bn_weight = get_key("conv.8.weight")
             self.conv3_bn_bias = get_key("conv.8.bias")
             self.conv3_bn_mean = get_key("conv.8.running_mean")
             self.conv3_bn_var = get_key("conv.8.running_var")
             
-            # conv.10 = final prediction layer (256 -> out_channels)
+            # conv.10 = final prediction layer (256 -> output, 1x1)
             self.conv_pred_weight = get_key("conv.10.weight")
             self.conv_pred_bias = get_key("conv.10.bias")
             
