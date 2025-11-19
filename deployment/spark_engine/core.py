@@ -199,44 +199,68 @@ class SPARKEngine:
                 for a in range(num_anchors):
                     offset = a * (5 + self.num_classes)
                     
-                    # Parse prediction
+                    # Parse prediction (raw values)
                     tx = detections[0, offset + 0, h, w]
                     ty = detections[0, offset + 1, h, w]
                     tw = detections[0, offset + 2, h, w]
                     th = detections[0, offset + 3, h, w]
-                    conf = detections[0, offset + 4, h, w]
+                    conf_raw = detections[0, offset + 4, h, w]
                     
-                    # Decode bbox with anchor scaling
-                    bx = (w + 1.0 / (1.0 + np.exp(-tx))) * (416 / grid_w)
-                    by = (h + 1.0 / (1.0 + np.exp(-ty))) * (416 / grid_h)
-                    # Apply anchor scaling (FIX: was missing anchor multiplication)
-                    bw = np.exp(tw) * self.anchors[a][0] * (416 / grid_w)
-                    bh = np.exp(th) * self.anchors[a][1] * (416 / grid_h)
+                    # Apply sigmoid to confidence (CRITICAL: must match comvis)
+                    conf = 1.0 / (1.0 + np.exp(-conf_raw))
                     
-                    x1 = bx - bw / 2
-                    y1 = by - bh / 2
-                    x2 = bx + bw / 2
-                    y2 = by + bh / 2
-                    
-                    # Filter by confidence
+                    # Filter by confidence (after sigmoid)
                     if conf > self.conf_threshold:
-                        # Get class prediction
-                        class_probs = detections[0, offset + 5:offset + 5 + self.num_classes, h, w]
-                        class_id = np.argmax(class_probs)
-                        class_conf = class_probs[class_id]
+                        # Decode bbox in NORMALIZED [0,1] coordinates (match comvis)
+                        # XY: grid position + sigmoid(tx/ty), normalized by grid size
+                        x_center = (w + 1.0 / (1.0 + np.exp(-tx))) / grid_w
+                        y_center = (h + 1.0 / (1.0 + np.exp(-ty))) / grid_h
                         
-                        # Denormalize coordinates
-                        x1 = (x1 - pad_x) / scale
-                        y1 = (y1 - pad_y) / scale
-                        x2 = (x2 - pad_x) / scale
-                        y2 = (y2 - pad_y) / scale
+                        # WH: exp(clamped tw/th) * anchor, normalized by grid size
+                        # Clamp to [-4, 4] to prevent extreme values
+                        tw_clamped = np.clip(tw, -4, 4)
+                        th_clamped = np.clip(th, -4, 4)
                         
-                        predictions.append({
-                            "bbox": [x1, y1, x2, y2],
-                            "confidence": float(conf * class_conf),
-                            "class": int(class_id),
-                            "class_name": self.class_names[class_id]
-                        })
+                        anchor_w = self.anchors[a][0] / grid_w
+                        anchor_h = self.anchors[a][1] / grid_h
+                        
+                        box_w = np.exp(tw_clamped) * anchor_w
+                        box_h = np.exp(th_clamped) * anchor_h
+                        
+                        # Convert to corner coordinates (still normalized [0,1])
+                        x_min = np.clip(x_center - box_w / 2, 0, 1)
+                        y_min = np.clip(y_center - box_h / 2, 0, 1)
+                        x_max = np.clip(x_center + box_w / 2, 0, 1)
+                        y_max = np.clip(y_center + box_h / 2, 0, 1)
+                        
+                        # Validate box dimensions
+                        if x_max > x_min and y_max > y_min:
+                            # Get class prediction (sigmoid applied)
+                            if self.num_classes > 0:
+                                class_probs_raw = detections[0, offset + 5:offset + 5 + self.num_classes, h, w]
+                                class_probs = 1.0 / (1.0 + np.exp(-class_probs_raw))
+                                class_id = np.argmax(class_probs)
+                            else:
+                                class_id = 0
+                            
+                            # Convert normalized [0,1] to pixel coordinates for final output
+                            x1_px = x_min * 416
+                            y1_px = y_min * 416
+                            x2_px = x_max * 416
+                            y2_px = y_max * 416
+                            
+                            # Denormalize to original image coordinates
+                            x1 = (x1_px - pad_x) / scale
+                            y1 = (y1_px - pad_y) / scale
+                            x2 = (x2_px - pad_x) / scale
+                            y2 = (y2_px - pad_y) / scale
+                            
+                            predictions.append({
+                                "bbox": [x1, y1, x2, y2],
+                                "confidence": float(conf),  # Use confidence only (no class multiplication)
+                                "class": int(class_id),
+                                "class_name": self.class_names[class_id]
+                            })
         
         # Apply NMS
         if len(predictions) > 0:
