@@ -68,3 +68,5 @@ comvis/car_size_distribution.png
 /datasets
 
 deployment/postman_wannabe.py
+deployment/output.jpg
+deployment/temp.jpg
