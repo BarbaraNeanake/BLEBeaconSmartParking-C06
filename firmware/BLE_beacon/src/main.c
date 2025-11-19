@@ -10,7 +10,7 @@
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 
-#define UUID "Beacon_1"
+#define UUID "Beacon_3"
 
 static const char *TAG = "BLE_BEACON";
 static uint8_t own_addr_type;

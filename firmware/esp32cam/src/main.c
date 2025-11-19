@@ -23,7 +23,7 @@
 #define WIFI_PASS "123654987"
 
 // Backend Configuration
-#define BACKEND_URL "https://webhook.site/3b14c2f5-71b0-47e3-a9b1-d82b641c0e41"
+#define BACKEND_URL "https://webhook.site/f34ec904-684e-4275-b3fd-8bccc8bb9716"
 
 // Trigger Pin (Blueprint: 100ms HIGH pulse from STM32 PB12)
 #define TRIGGER_PIN 15  // GPIO15
