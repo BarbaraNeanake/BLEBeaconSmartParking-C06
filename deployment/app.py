@@ -310,6 +310,63 @@ async def get_logs() -> List[Dict]:
     """Returns the most recent messages stored in memory."""
     return mqtt_manager.get_messages()
 
+@app.post("/findCars")
+async def find_cars(file: UploadFile = File(...)):
+    """
+    Car detection endpoint that returns image with bounding boxes.
+    
+    Returns:
+        Image with bounding boxes drawn around detected cars
+    """
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        # Preprocess image
+        image_bytes = await file.read()
+        image_bgr = preprocess_uploaded_image(image_bytes)
+        
+        # Run inference
+        detections = inference_engine.predict(image_bgr)
+        
+        # Draw bounding boxes on image
+        output_image = image_bgr.copy()
+        for det in detections:
+            bbox = det.get('bbox', [])
+            confidence = det.get('confidence', 0)
+            class_name = det.get('class_name', 'unknown')
+            
+            if len(bbox) == 4:
+                x1, y1, x2, y2 = map(int, bbox)
+                
+                # Draw rectangle
+                cv2.rectangle(output_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                # Draw label
+                label = f"{class_name}: {confidence:.2f}"
+                label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+                cv2.rectangle(output_image, (x1, y1 - label_size[1] - 10), 
+                            (x1 + label_size[0], y1), (0, 255, 0), -1)
+                cv2.putText(output_image, label, (x1, y1 - 5), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        
+        # Convert BGR to RGB for PIL
+        output_image_rgb = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(output_image_rgb)
+        
+        # Convert to bytes
+        img_byte_arr = io.BytesIO()
+        pil_image.save(img_byte_arr, format='JPEG')
+        img_byte_arr.seek(0)
+        
+        logger.info(f"Detected {len(detections)} cars with bounding boxes drawn")
+        
+        return Response(content=img_byte_arr.getvalue(), media_type="image/jpeg")
+        
+    except Exception as e:
+        logger.error(f"Car detection with bounding boxes failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Detection failed: {str(e)}")
+
 @app.post("/parkingStatus")
 async def get_parking_status(request: ParkingStatusRequest):
     slot_status = await db_manager.get_slot_status(request.slot_id)
