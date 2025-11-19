@@ -318,8 +318,14 @@ async def find_cars(file: UploadFile = File(...)):
     Returns:
         Image with bounding boxes drawn around detected cars
     """
-    if not file.content_type or not file.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    try:
+        # More lenient content type check
+        if file.content_type and not file.content_type.startswith('image/'):
+            logger.warning(f"Content type is {file.content_type}, proceeding anyway")
+    
+    except Exception as validation_error:
+        logger.error(f"Validation error: {validation_error}")
+        raise HTTPException(status_code=400, detail=f"Invalid file: {str(validation_error)}")
     
     try:
         # Preprocess image
