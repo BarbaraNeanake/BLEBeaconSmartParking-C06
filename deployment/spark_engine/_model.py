@@ -4,7 +4,7 @@ Pure Python ResNet34 and YOLOv2 model implementations using NumPy
 
 import numpy as np
 from typing import Dict, Tuple, List, Optional
-from ._math import conv2d, relu, batch_norm, max_pool2d, adaptive_avg_pool2d
+from ._math import conv2d, relu, leaky_relu, batch_norm, max_pool2d, adaptive_avg_pool2d
 
 
 class ResBlock:
@@ -224,23 +224,23 @@ class YOLODetectionHead:
     
     def forward(self, x: np.ndarray) -> np.ndarray:
         """Forward pass through detection head"""
-        # Conv layer 1 (3x3) with BN + ReLU + Dropout (note: dropout not implemented in inference)
+        # Conv layer 1 (3x3) with BN + LeakyReLU + Dropout (note: dropout not implemented in inference)
         x = conv2d(x, self.conv1_weight, stride=1, pad=1)
         x = batch_norm(x, self.conv1_bn_weight, self.conv1_bn_bias, 
                       self.conv1_bn_mean, self.conv1_bn_var)
-        x = relu(x)
+        x = leaky_relu(x, 0.1)
         
-        # Conv layer 2 (3x3) with BN + ReLU
+        # Conv layer 2 (3x3) with BN + LeakyReLU
         x = conv2d(x, self.conv2_weight, stride=1, pad=1)
         x = batch_norm(x, self.conv2_bn_weight, self.conv2_bn_bias,
                       self.conv2_bn_mean, self.conv2_bn_var)
-        x = relu(x)
+        x = leaky_relu(x, 0.1)
         
-        # Conv layer 3 (1x1) with BN + ReLU
+        # Conv layer 3 (1x1) with BN + LeakyReLU
         x = conv2d(x, self.conv3_weight, stride=1)
         x = batch_norm(x, self.conv3_bn_weight, self.conv3_bn_bias,
                       self.conv3_bn_mean, self.conv3_bn_var)
-        x = relu(x)
+        x = leaky_relu(x, 0.1)
         
         # Prediction layer (1x1, no activation)
         x = conv2d(x, self.conv_pred_weight, self.conv_pred_bias, stride=1)

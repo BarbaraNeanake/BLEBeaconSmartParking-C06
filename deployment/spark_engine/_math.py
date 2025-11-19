@@ -130,6 +130,11 @@ def relu(x: np.ndarray) -> np.ndarray:
     return np.maximum(x, 0)
 
 
+def leaky_relu(x: np.ndarray, negative_slope: float = 0.1) -> np.ndarray:
+    """Leaky ReLU activation"""
+    return np.where(x > 0, x, x * negative_slope)
+
+
 def sigmoid(x: np.ndarray) -> np.ndarray:
     """Sigmoid activation"""
     return 1.0 / (1.0 + np.exp(-np.clip(x, -50, 50)))
