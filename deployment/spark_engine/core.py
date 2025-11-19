@@ -164,8 +164,15 @@ class SPARKEngine:
         image = cv2.copyMakeBorder(image, pad_top, pad_bottom, pad_left, pad_right,
                                    cv2.BORDER_CONSTANT, value=(128, 128, 128))
         
-        # Normalize
+        # Convert BGR to RGB (OpenCV loads as BGR, but model expects RGB)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Normalize with ImageNet mean and std (matching PyTorch transforms)
         image = image.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
+        std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
+        image = (image - mean) / std
+        
         image = np.transpose(image, (2, 0, 1))  # HWC to CHW
         image = np.expand_dims(image, 0)  # Add batch dimension
         
