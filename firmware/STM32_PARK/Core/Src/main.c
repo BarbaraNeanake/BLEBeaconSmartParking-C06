@@ -37,8 +37,8 @@
 #define BUZZER_PORT GPIOC
 
 // WiFi Credentials
-#define WIFI_SSID "bo"
-#define WIFI_PASSWORD "yayayaya"
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
 
 // MQTT Broker Configuration
 #define MQTT_BROKER "broker.hivemq.com"
@@ -78,7 +78,6 @@ UART_HandleTypeDef huart2;
 VL53L0X_RangingData_t rangingData;
 VL53L0X_DeviceInfo_t deviceInfo;
 uint16_t distance_mm = 0;
-uint32_t measurementCount = 0;
 
 // MQTT Variables
 char rx_buffer[RX_BUFFER_SIZE];
@@ -141,7 +140,7 @@ int _write(int file, char *ptr, int len) {
   */
 void VL53L0X_ProcessRangingData(VL53L0X_RangingData_t *data)
 {
-    printf("[#%lu] Distance: %4d mm", measurementCount++, data->range_mm);
+    printf("Distance: %4d mm", data->range_mm);
 
     if (data->range_status == 0) {
         printf(" | %.2f cm | Signal: %3d",
@@ -677,17 +676,57 @@ int main(void)
       while(1) { HAL_Delay(1000); }
   }
 
-  // Send MQTT CONNECT
-  if (ESP01_Send_MQTT_CONNECT(MQTT_CLIENT_ID))
+  // Send MQTT CONNECT with retry logic
+  const uint8_t MAX_MQTT_RETRIES = 5;
+  uint8_t mqtt_retry_count = 0;
+  uint8_t mqtt_connected_successfully = 0;
+
+  while (mqtt_retry_count < MAX_MQTT_RETRIES && !mqtt_connected_successfully)
   {
-      Blink_Status(5, 200);
-      HAL_Delay(2000);
+      printf("\r\nAttempting MQTT CONNECT (Attempt %d/%d)...\r\n",
+             mqtt_retry_count + 1, MAX_MQTT_RETRIES);
+
+      if (ESP01_Send_MQTT_CONNECT(MQTT_CLIENT_ID))
+      {
+          mqtt_connected_successfully = 1;
+          printf("✅ MQTT CONNECT successful on attempt %d!\r\n", mqtt_retry_count + 1);
+          Blink_Status(5, 200);  // Success blink pattern
+          HAL_Delay(2000);
+      }
+      else
+      {
+          mqtt_retry_count++;
+          printf("❌ MQTT CONNECT failed on attempt %d\r\n", mqtt_retry_count);
+
+          // Different blink patterns based on retry count
+          if (mqtt_retry_count < MAX_MQTT_RETRIES) {
+              printf("Waiting 2 seconds before retry...\r\n");
+              Blink_Status(mqtt_retry_count, 300);  // Blink count = retry number
+              HAL_Delay(2000);
+          } else {
+              printf("❌ Maximum MQTT connection attempts reached (%d)!\r\n", MAX_MQTT_RETRIES);
+              Blink_Status(10, 100);  // Rapid blink for failure
+              // Optional: Add a longer delay before resetting or continuing
+              HAL_Delay(5000);
+          }
+      }
   }
-  else
-  {
-      printf("MQTT CONNECT failed!\r\n");
-      Blink_Status(10, 400);
-      while(1) { HAL_Delay(1000); }
+
+  // Handle final failure after all retries
+  if (!mqtt_connected_successfully) {
+      printf("\r\n!!! CRITICAL: All MQTT connection attempts failed !!!\r\n");
+      printf("System will attempt to continue in degraded mode...\r\n");
+      printf("Note: No MQTT connectivity - sensor data will not be published\r\n");
+
+      // Instead of infinite loop, continue with degraded functionality
+      // You could also reset the system here if preferred:
+      // NVIC_SystemReset();
+
+      // Blink continuously to indicate degraded mode
+      while (1) {
+          HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+          HAL_Delay(500);
+      }
   }
 
   printf("\r\n====================================================\r\n");
@@ -702,16 +741,18 @@ int main(void)
   while (!VL53L0X_IsDeviceReady(&hi2c1)) {
       printf("ERROR: VL53L0X not detected!\r\n");
       printf("Retrying to find VL53L0X sensor...\r\n");
+      HAL_Delay(1000);
       VL53L0X_IsDeviceReady(&hi2c1);
-      HAL_Delay(500);
+
   }
 
   vl_status = VL53L0X_Init(&hi2c1);
   while (vl_status != VL53L0X_OK) {
       printf("ERROR: VL53L0X initialization failed!\r\n");
       printf("Retrying VL53L0X initialization...\r\n");
+      HAL_Delay(1000);
       vl_status = VL53L0X_Init(&hi2c1);
-      HAL_Delay(500);
+
   }
   printf("VL53L0X initialized successfully!\r\n\r\n");
 
@@ -723,7 +764,7 @@ int main(void)
 
   // Configure sensor
   VL53L0X_SetProfile(&hi2c1, VL53L0X_PROFILE_DEFAULT);
-  VL53L0X_SetMeasurementTimingBudget(&hi2c1, 33000);
+  VL53L0X_SetMeasurementTimingBudget(&hi2c1, 200000);
   VL53L0X_ConfigureInterrupt(&hi2c1, true);
 
   // Start continuous measurement
@@ -746,8 +787,6 @@ int main(void)
 
   last_ping_time = HAL_GetTick();
   last_publish_time = HAL_GetTick();
-  ESP01_Send_MQTT_SUBSCRIBE(MQTT_TOPIC_ALARM, 1);
-  //ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, "BANG TOLONG BANG");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -767,39 +806,80 @@ int main(void)
 
     /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+	      /* USER CODE BEGIN 3 */
 
-    // Read VL53L0X sensor
+	      // Read VL53L0X sensor
+	      vl_status = VL53L0X_ReadRangeData(&hi2c1, &rangingData);
 
-    vl_status = VL53L0X_ReadRangeData(&hi2c1, &rangingData);
+	      static uint32_t sensor_failure_start_time = 0;  // Track when sensor failures start
+	      uint32_t current_time = HAL_GetTick();
 
-    if (vl_status == VL53L0X_OK && rangingData.range_status == 0)
-    {
-        VL53L0X_ProcessRangingData(&rangingData);
+	      // Check if we have a valid sensor reading
+	      if (vl_status == VL53L0X_OK && rangingData.range_status == 0)
+	      {
+	          // Valid reading received - reset failure timer
+	          sensor_failure_start_time = 0;
+	          VL53L0X_ProcessRangingData(&rangingData);
 
-        // Determine if spot is occupied (car detected within threshold)
-        if (rangingData.range_mm < DISTANCE_THRESHOLD_FAR) {
-            // Car detected
-            if (!spot_occupied) {
-                spot_occupied = 1;
-                printf("\r\n>>> CAR DETECTED! Publishing to MQTT...\r\n");
-                ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_OCCUPIED);
-                Blink_Status(3, 100);
-                printf("\r\n");
-            }
-        } else {
-            // No car - spot empty
-            if (spot_occupied) {
-                spot_occupied = 0;
-                printf("\r\n>>> SPOT CLEARED! Publishing to MQTT...\r\n");
-                ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_EMPTY);
-                Blink_Status(2, 150);
-                printf("\r\n");
-            }
-        }
-    }
+	          // Add 3-second confirmation for occupancy detection
+	          static uint32_t occupancy_start_time = 0;
 
-    VL53L0X_ClearInterrupt(&hi2c1);
+	          if (rangingData.range_mm < DISTANCE_THRESHOLD_FAR) {
+	              // Object detected within threshold
+	              if (!spot_occupied) {
+	                  if (occupancy_start_time == 0) {
+	                      // First detection - start timer
+	                      occupancy_start_time = current_time;
+	                  } else if ((current_time - occupancy_start_time) >= 3000) {
+	                      // Confirmed occupancy after 3 seconds of continuous detection
+	                      spot_occupied = 1;
+	                      printf("\r\n>>> CAR DETECTED! Publishing to MQTT...\r\n");
+	                      ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_OCCUPIED);
+	                      Blink_Status(3, 100);
+	                      printf("\r\n");
+	                      occupancy_start_time = 0; // Reset timer
+	                  }
+	              } else {
+	                  // Already occupied - reset timer to prevent overflow
+	                  occupancy_start_time = 0;
+	              }
+	          } else {
+	              // No object detected within threshold
+	              occupancy_start_time = 0; // Reset timer for next detection
+
+	              if (spot_occupied) {
+	                  spot_occupied = 0;
+	                  printf("\r\n>>> SPOT CLEARED! Publishing to MQTT...\r\n");
+	                  ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_EMPTY);
+	                  Blink_Status(2, 150);
+	                  printf("\r\n");
+	              }
+	          }
+	      }
+	      else
+	      {
+	          // Invalid sensor reading (error or timeout)
+	          printf("Sensor error: vl_status=%d, range_status=%d\r\n", vl_status, rangingData.range_status);
+
+	          // Only start failure timer if spot is currently occupied
+	          if (spot_occupied) {
+	              if (sensor_failure_start_time == 0) {
+	                  // First failure - start timer
+	                  sensor_failure_start_time = current_time;
+	                  printf("Sensor failure detected. Starting 3-second timer...\r\n");
+	              } else if ((current_time - sensor_failure_start_time) >= 3000) {
+	                  // Sensor has been failing for 3 seconds while spot is occupied
+	                  printf("\r\n>>> SENSOR FAILURE TIMEOUT! Treating spot as empty...\r\n");
+	                  spot_occupied = 0;
+	                  ESP01_Send_MQTT_PUBLISH(MQTT_TOPIC_SLOT, MQTT_KEYWORD_EMPTY);
+	                  Blink_Status(2, 150);
+	                  printf("\r\n");
+	                  sensor_failure_start_time = 0; // Reset timer
+	              }
+	          }
+	      }
+
+	      VL53L0X_ClearInterrupt(&hi2c1);
 
     // Send MQTT ping every 30 seconds
     if ((HAL_GetTick() - last_ping_time) >= 30000)
@@ -813,11 +893,12 @@ int main(void)
     if ((HAL_GetTick() - last_publish_time) >= 60000)
     {
         char status_msg[64];
-        snprintf(status_msg, sizeof(status_msg), "Spot: %s | Count: %lu",
-                 spot_occupied ? "OCCUPIED" : "EMPTY", measurementCount);
+        snprintf(status_msg, sizeof(status_msg), "Spot: %s ",
+                 spot_occupied ? "OCCUPIED" : "EMPTY");
         ESP01_Send_MQTT_PUBLISH("SPARK_C06/status", status_msg);
         last_publish_time = HAL_GetTick();
     }
+    HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }
