@@ -98,7 +98,17 @@ mqtt_manager = MQTTManager(
 )
 
 # MQTT Client Setup
-mqtt_manager.set_db_callback(lambda slot_id, is_occupied: db_manager.update_slot_status(slot_id, is_occupied))
+# Callback wrapper to schedule async DB updates
+def schedule_db_update(slot_id: str, is_occupied: bool):
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        asyncio.create_task(db_manager.update_slot_status(slot_id, is_occupied))
+    except RuntimeError:
+        # No event loop running, this shouldn't happen in FastAPI but handle it
+        logger.warning(f"⚠️ No event loop available for DB update: slot {slot_id}")
+
+mqtt_manager.set_db_callback(schedule_db_update)
 client = mqtt_manager.create_client(
     broker_host=MQTT_BROKER_HOST,
     broker_port=MQTT_BROKER_PORT,

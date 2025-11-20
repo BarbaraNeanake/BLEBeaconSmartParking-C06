@@ -180,13 +180,8 @@ class MQTTManager:
             
             # Trigger DB update callback if needed
             if should_update_db and self.db_update_callback:
-                import asyncio
-                try:
-                    # Call the database update function directly with slot_id
-                    asyncio.create_task(self.db_update_callback(slot_id, is_occupied))
-                except RuntimeError:
-                    # Event loop not running, log placeholder
-                    logger.info(f"🔄 [PLACEHOLDER] Would update DB: Slot {slot_id} → {is_occupied}")
+                # Schedule the async callback to run
+                self.db_update_callback(slot_id, is_occupied)
             
         except Exception as e:
             logger.error(f"❌ Error processing slot {slot_id}: {e}")
