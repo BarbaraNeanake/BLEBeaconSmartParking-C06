@@ -95,10 +95,10 @@ class DatabaseManager:
             conn = self.pool.getconn()
             cursor = conn.cursor()
             
-            # Update slot status
+            # Update slot status in parking table
             status = 'occupied' if is_occupied else 'available'
             cursor.execute(
-                "UPDATE parking_slots SET status = %s WHERE nomor = %s",
+                "UPDATE parking SET status = %s WHERE nomor = %s",
                 (status, slot_id)
             )
             conn.commit()
