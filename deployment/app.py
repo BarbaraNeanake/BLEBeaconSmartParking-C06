@@ -7,6 +7,7 @@ import time
 import os
 import io
 import logging
+import asyncio
 from typing import List, Dict, Optional, Union
 import numpy as np
 import cv2
@@ -98,15 +99,20 @@ mqtt_manager = MQTTManager(
 )
 
 # MQTT Client Setup
-# Callback wrapper to schedule async DB updates
+# Store the main event loop reference for cross-thread async calls
+main_loop = None
+
+# Callback wrapper to schedule async DB updates from MQTT thread
 def schedule_db_update(slot_id: str, is_occupied: bool):
     import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        asyncio.create_task(db_manager.update_slot_status(slot_id, is_occupied))
-    except RuntimeError:
-        # No event loop running, this shouldn't happen in FastAPI but handle it
-        logger.warning(f"⚠️ No event loop available for DB update: slot {slot_id}")
+    if main_loop is not None:
+        # Use run_coroutine_threadsafe to schedule in main thread's loop
+        asyncio.run_coroutine_threadsafe(
+            db_manager.update_slot_status(slot_id, is_occupied),
+            main_loop
+        )
+    else:
+        logger.warning(f"⚠️ Main event loop not available for DB update: slot {slot_id}")
 
 mqtt_manager.set_db_callback(schedule_db_update)
 client = mqtt_manager.create_client(
@@ -119,7 +125,10 @@ client = mqtt_manager.create_client(
 @app.on_event("startup")
 async def startup_event():
     """Connect to MQTT, initialize database pool, and initialize inference engine when the app starts."""
-    global inference_engine
+    global inference_engine, main_loop
+    
+    # Capture the main event loop for cross-thread async calls
+    main_loop = asyncio.get_event_loop()
     
     # Load slot regions for hogging detection
     slot_region_manager.load(SLOT_REGIONS_FILE)
